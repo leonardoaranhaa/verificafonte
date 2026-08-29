@@ -20,44 +20,31 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Resolve secrets
-        id: secrets
+      - name: Check secrets
         env:
-          TOKEN: ${{ secrets.Railway_secret }}
-          # Aceita vários nomes comuns
-          S1: ${{ secrets.RAILWAY_SERVICE_ID }}
-          S2: ${{ secrets.Railway_service_id }}
-          S3: ${{ secrets.Railway_service }}
-          S4: ${{ secrets.RAILWAY_SERVICE }}
-          S5: ${{ secrets.service_id }}
+          RAILWAY_TOKEN: ${{ secrets.Railway_secret }}
+          RAILWAY_SERVICE: ${{ secrets.Railway_id }}
         run: |
-          if [ -z "$TOKEN" ]; then
+          if [ -z "$RAILWAY_TOKEN" ]; then
             echo "::error::Secret Railway_secret ausente."
             exit 1
           fi
-          SVC="$S1"
-          [ -z "$SVC" ] && SVC="$S2"
-          [ -z "$SVC" ] && SVC="$S3"
-          [ -z "$SVC" ] && SVC="$S4"
-          [ -z "$SVC" ] && SVC="$S5"
-          if [ -z "$SVC" ]; then
-            echo "::error::Nenhum secret de serviço encontrado. Crie RAILWAY_SERVICE_ID com o nome ou ID do serviço do app (não o MySQL)."
+          if [ -z "$RAILWAY_SERVICE" ]; then
+            echo "::error::Secret Railway_id ausente (nome ou ID do serviço do app)."
             exit 1
           fi
-          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
-          echo "service=$SVC" >> "$GITHUB_OUTPUT"
-          echo "Serviço resolvido: $SVC"
+          echo "Service: $RAILWAY_SERVICE"
 
       - name: Install Railway CLI
         run: npm install -g @railway/cli
 
       - name: Deploy
         env:
-          RAILWAY_TOKEN: ${{ steps.secrets.outputs.token }}
-        run: railway up --detach --service "${{ steps.secrets.outputs.service }}"
+          RAILWAY_TOKEN: ${{ secrets.Railway_secret }}
+        run: railway up --detach --service "${{ secrets.Railway_id }}"
 
       - name: Summary
         run: |
           echo "### Deploy enviado à Railway" >> "$GITHUB_STEP_SUMMARY"
-          echo "Service: \`${{ steps.secrets.outputs.service }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Service: \`${{ secrets.Railway_id }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "Commit: \`${{ github.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
