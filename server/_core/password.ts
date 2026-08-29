@@ -1,15 +1,27 @@
 import { randomBytes, scrypt as scryptCb, timingSafeEqual } from "crypto";
-import { promisify } from "util";
 
-const scrypt = promisify(scryptCb);
 const KEYLEN = 64;
+
+function scrypt(
+  password: string,
+  salt: Buffer,
+  keylen: number,
+  options: { N: number; r: number; p: number },
+): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    scryptCb(password, salt, keylen, options, (err, derivedKey) => {
+      if (err) reject(err);
+      else resolve(derivedKey);
+    });
+  });
+}
 
 export async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(16);
   const N = 16384;
   const r = 8;
   const p = 1;
-  const derived = (await scrypt(password, salt, KEYLEN, { N, r, p })) as Buffer;
+  const derived = await scrypt(password, salt, KEYLEN, { N, r, p });
   return `scrypt$${N}$${r}$${p}$${salt.toString("base64")}$${derived.toString("base64")}`;
 }
 
@@ -22,7 +34,7 @@ export async function verifyPassword(password: string, stored: string): Promise<
     const p = Number(parts[3]);
     const salt = Buffer.from(parts[4], "base64");
     const expected = Buffer.from(parts[5], "base64");
-    const derived = (await scrypt(password, salt, expected.length, { N, r, p })) as Buffer;
+    const derived = await scrypt(password, salt, expected.length, { N, r, p });
     if (derived.length !== expected.length) return false;
     return timingSafeEqual(derived, expected);
   } catch {

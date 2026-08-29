@@ -1,0 +1,1 @@
+ALTER TABLE `historical_findings` MODIFY COLUMN `finalUrl` varchar(2048) NOT NULL;
