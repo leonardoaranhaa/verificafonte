@@ -1,0 +1,55 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1787947765100,
+      "tag": "0000_worthless_talos",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1787947937360,
+      "tag": "0001_short_madripoor",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1787948630389,
+      "tag": "0002_low_hardball",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1787972550933,
+      "tag": "0003_sharp_quentin_quire",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1787999389831,
+      "tag": "0004_past_dracula",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1787999415750,
+      "tag": "0005_marvelous_stingray",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1788037898374,
+      "tag": "0006_add_password_hash",
+      "breakpoints": true
+    }
+  ]
+}
