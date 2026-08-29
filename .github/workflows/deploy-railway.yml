@@ -1,24 +1,31 @@
 name: Deploy Railway
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
+
+concurrency:
+  group: deploy-railway-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   deploy:
-    name: Railway deploy
+    name: Deploy to Railway
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
+    if: github.repository == 'leonardoaranhaa/verificafonte'
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Check Railway token
+      - name: Check RAILWAY_TOKEN
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
           if [ -z "$RAILWAY_TOKEN" ]; then
-            echo "::error::Configure o secret RAILWAY_TOKEN no repositório."
+            echo "::error::Secret RAILWAY_TOKEN ausente. Crie um Project Token no Railway e adicione em Settings → Secrets → Actions."
             exit 1
           fi
 
@@ -28,5 +35,14 @@ jobs:
       - name: Deploy
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-          RAILWAY_SERVICE_ID: ${{ secrets.RAILWAY_SERVICE_ID }}
-        run: railway up --detach
+        run: |
+          if [ -n "${{ secrets.RAILWAY_SERVICE_ID }}" ]; then
+            railway up --detach --service "${{ secrets.RAILWAY_SERVICE_ID }}"
+          else
+            railway up --detach
+          fi
+
+      - name: Summary
+        run: |
+          echo "### Deploy enviado à Railway" >> "$GITHUB_STEP_SUMMARY"
+          echo "Commit: \`${{ github.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
