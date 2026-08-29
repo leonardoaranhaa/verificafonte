@@ -75,7 +75,7 @@ jobs:
           JWT_SECRET: ci-test-secret-not-for-production-32chars
 
       - name: Upload dist artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist
