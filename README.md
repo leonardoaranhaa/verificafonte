@@ -6,7 +6,7 @@ Veja `ESTADO_ATUAL.md` para o estado funcional detalhado e `AGENT_INTEGRATION.md
 
 ## Stack
 
-React 19 + Vite + Tailwind CSS 4 no cliente, Express + tRPC 11 + Drizzle ORM (MySQL) no servidor, autenticação nativa por e-mail/senha (JWT em cookie httpOnly) e extração de alegações via API da Anthropic.
+React 19 + Vite + Tailwind CSS 4 no cliente, Express + tRPC 11 + Drizzle ORM (MySQL) no servidor, autenticação nativa por e-mail/senha e login com Google (JWT em cookie httpOnly), extração de alegações via API da Anthropic.
 
 ## Configuração
 
@@ -22,6 +22,8 @@ Preencha no `.env`:
 - `ANTHROPIC_API_KEY` — chave da API da Anthropic, usada para extrair alegações de links e prints.
 - `ANTHROPIC_MODEL` — opcional; usa um modelo padrão se omitido.
 - `OWNER_OPEN_ID` — opcional; `openId` (`email:seu@email.com`) que deve receber a role `admin` automaticamente.
+- `APP_URL` — URL pública do app (ex.: `https://verificafonte.up.railway.app`); usada para montar o redirect do login com Google. Em dev local pode ficar vazia.
+- `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` — opcionais; sem eles, o botão "Continuar com Google" retorna erro no backend, mas o login por e-mail/senha funciona normalmente. Para habilitar, crie um OAuth Client ID (tipo "Web application") no [Google Cloud Console](https://console.cloud.google.com/apis/credentials) com o URI de redirecionamento autorizado `<APP_URL>/api/oauth/google/callback`.
 
 ## Banco de dados
 
