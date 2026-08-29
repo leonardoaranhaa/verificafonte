@@ -20,12 +20,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Check RAILWAY_TOKEN
+      - name: Check Railway token
         env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_TOKEN: ${{ secrets.Railway_secret }}
         run: |
           if [ -z "$RAILWAY_TOKEN" ]; then
-            echo "::error::Secret RAILWAY_TOKEN ausente. Crie um Project Token no Railway e adicione em Settings → Secrets → Actions."
+            echo "::error::Secret Railway_secret ausente. Confirme o nome em Settings → Secrets → Actions."
             exit 1
           fi
 
@@ -34,7 +34,7 @@ jobs:
 
       - name: Deploy
         env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_TOKEN: ${{ secrets.Railway_secret }}
         run: |
           if [ -n "${{ secrets.RAILWAY_SERVICE_ID }}" ]; then
             railway up --detach --service "${{ secrets.RAILWAY_SERVICE_ID }}"
