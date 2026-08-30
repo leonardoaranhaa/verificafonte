@@ -50,6 +50,13 @@
       "when": 1788037898374,
       "tag": "0006_add_password_hash",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "5",
+      "when": 1788098762656,
+      "tag": "0007_source_moments",
+      "breakpoints": true
     }
   ]
 }

@@ -9,4 +9,5 @@ export const ENV = {
   appUrl: process.env.APP_URL ?? "",
   googleClientId: process.env.GOOGLE_CLIENT_ID ?? "",
   googleClientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",
+  googleFactCheckApiKey: (process.env.GOOGLE_FACTCHECK_API_KEY ?? process.env.GOOGLE_API_KEY ?? "").trim(),
 };

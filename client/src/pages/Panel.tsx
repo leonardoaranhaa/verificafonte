@@ -26,6 +26,7 @@ export default function Panel() {
   const [activeTab, setActiveTab] = useState<"workspace" | "review" | "orchestration">("workspace");
   const [showEvidenceForm, setShowEvidenceForm] = useState(false);
   const [showReviewForm, setShowReviewForm] = useState(false);
+  const [showMomentForm, setShowMomentForm] = useState(false);
   const utils = trpc.useUtils();
   const { data: cases, isLoading: casesLoading } = trpc.cases.all.useQuery(undefined, { enabled: Boolean(user) });
   const { data: bundle, isLoading: bundleLoading } = trpc.cases.workspace.useQuery({ caseId }, { enabled: Boolean(user && caseId) });
@@ -58,11 +59,12 @@ export default function Panel() {
       <div className="panel-topbar"><div className="mobile-panel-menu"><Menu size={18} /></div><div><span className="panel-kicker">ESPAÇO DE TRABALHO</span><h1>{activeTab === "workspace" ? "Casos de verificação" : activeTab === "review" ? "Revisão editorial" : "Orquestração"}</h1></div><button className="button button-accent button-small" onClick={() => setLocation("/?novo=1")}><Plus size={15} /> Nova alegação</button></div>
       {activeTab === "orchestration" ? <Orchestration /> : activeTab === "review" ? <ReviewQueue cases={cases ?? []} onOpen={id => setLocation(`/painel?caseId=${id}`)} /> : <div className="workspace-layout">
         <section className="case-list-pane"><div className="pane-title"><div><span className="panel-kicker">SEUS CASOS</span><h2>Fila de verificação</h2></div><span className="case-total">{cases?.length ?? 0}</span></div><div className="case-list">{casesLoading ? <div className="list-placeholder">Buscando casos…</div> : cases?.length ? cases.map(item => <button className={`case-list-item ${item.id === caseId ? "selected" : ""}`} key={item.id} onClick={() => setLocation(`/painel?caseId=${item.id}`)}><div className="case-list-meta"><span className={`status-dot ${statusTone[item.status]}`}></span><span>{workflowLabels[item.workflowStatus]}</span><span>·</span><span>{formatDate(item.updatedAt)}</span></div><strong>{item.claimText}</strong><ChevronRight size={16} /></button>) : <div className="list-empty"><div className="empty-icon"><FilePlus2 size={17} /></div><p>Seus casos aparecem aqui.</p><button className="button button-dark button-small" onClick={() => setLocation("/")}>Criar primeiro caso</button></div>}</div></section>
-        <section className="case-workspace">{!caseId ? <WorkspaceWelcome /> : bundleLoading ? <div className="workspace-empty"><div className="loading-orbit"></div><p>Carregando caso…</p></div> : selectedCase ? <><div className="workspace-heading"><div><div className="breadcrumb"><span>Casos</span><ChevronRight size={13} /><span>{selectedCase.workflowStatus === "publicado" ? "Público" : "Em trabalho"}</span></div><h2>{selectedCase.claimText}</h2>{selectedCase.claimUrl && <a href={selectedCase.claimUrl} target="_blank" rel="noreferrer" className="origin-link"><Link2 size={14} /> Ver publicação original <ArrowUpRight size={13} /></a>}</div><span className={`status-pill ${statusTone[selectedCase.status]}`}>{statusLabels[selectedCase.status]}</span></div><div className="case-subnav"><button className="subnav-active">Visão geral</button><span>Atualizado em {formatDate(selectedCase.updatedAt)}</span><span className="workflow-badge">{workflowLabels[selectedCase.workflowStatus]}</span></div><div className="workspace-grid"><div className="workspace-primary"><EvidencePanel evidence={bundle.evidenceRows} onAdd={() => setShowEvidenceForm(true)} sourceMix={sourceMix} /><AnalysisPanel analysis={lastAnalysis} isPending={generateAnalysis.isPending} disabled={!evidenceCount} onGenerate={() => generateAnalysis.mutate({ caseId })} /></div><aside className="workspace-aside"><EditorialPanel selectedCase={selectedCase} reviews={bundle.reviewRows} onUpdate={(payload) => updateWorkflow.mutate({ caseId, ...payload })} onReview={() => setShowReviewForm(true)} /><AgentPanel caseId={caseId} /></aside></div></> : <div className="workspace-empty"><AlertCircle size={20} /><p>Não foi possível localizar este caso.</p></div>}</section>
+        <section className="case-workspace">{!caseId ? <WorkspaceWelcome /> : bundleLoading ? <div className="workspace-empty"><div className="loading-orbit"></div><p>Carregando caso…</p></div> : selectedCase ? <><div className="workspace-heading"><div><div className="breadcrumb"><span>Casos</span><ChevronRight size={13} /><span>{selectedCase.workflowStatus === "publicado" ? "Público" : "Em trabalho"}</span></div><h2>{selectedCase.claimText}</h2>{selectedCase.claimUrl && <a href={selectedCase.claimUrl} target="_blank" rel="noreferrer" className="origin-link"><Link2 size={14} /> Ver publicação original <ArrowUpRight size={13} /></a>}</div><span className={`status-pill ${statusTone[selectedCase.status]}`}>{statusLabels[selectedCase.status]}</span></div><div className="case-subnav"><button className="subnav-active">Visão geral</button><span>Atualizado em {formatDate(selectedCase.updatedAt)}</span><span className="workflow-badge">{workflowLabels[selectedCase.workflowStatus]}</span></div><div className="workspace-grid"><div className="workspace-primary"><EvidencePanel evidence={bundle.evidenceRows} onAdd={() => setShowEvidenceForm(true)} sourceMix={sourceMix} /><MomentsPanel caseId={caseId} moments={bundle.momentRows} onAdd={() => setShowMomentForm(true)} /><AnalysisPanel analysis={lastAnalysis} isPending={generateAnalysis.isPending} disabled={!evidenceCount} onGenerate={() => generateAnalysis.mutate({ caseId })} /></div><aside className="workspace-aside"><EditorialPanel selectedCase={selectedCase} reviews={bundle.reviewRows} onUpdate={(payload) => updateWorkflow.mutate({ caseId, ...payload })} onReview={() => setShowReviewForm(true)} /><AgentPanel caseId={caseId} /></aside></div></> : <div className="workspace-empty"><AlertCircle size={20} /><p>Não foi possível localizar este caso.</p></div>}</section>
       </div>}
     </main>
     {showEvidenceForm && <EvidenceForm onClose={() => setShowEvidenceForm(false)} isPending={addEvidence.isPending} onSubmit={values => addEvidence.mutate({ caseId, ...values })} />}
     {showReviewForm && <ReviewForm onClose={() => setShowReviewForm(false)} isPending={submitReview.isPending} onSubmit={values => submitReview.mutate({ caseId, ...values })} />}
+    {showMomentForm && <MomentForm caseId={caseId} originals={(bundle?.momentRows ?? []).filter(moment => moment.role === "original")} onClose={() => setShowMomentForm(false)} />}
   </div>;
 }
 
@@ -75,9 +77,136 @@ function AnalysisPanel({ analysis, isPending, disabled, onGenerate }: { analysis
 function EditorialPanel({ selectedCase, reviews, onUpdate, onReview }: { selectedCase: { workflowStatus: "rascunho" | "em_revisao" | "publicado" | "arquivado"; status: "em_apuracao" | "confirmado" | "divergente" | "insuficiente"; methodology: string | null; editorialNote: string | null }; reviews: Array<{ id: number; decision: string; note: string; createdAt: Date }>; onUpdate: (payload: { workflowStatus: "rascunho" | "em_revisao" | "publicado" | "arquivado"; status?: "em_apuracao" | "confirmado" | "divergente" | "insuficiente"; methodology?: string; editorialNote?: string }) => void; onReview: () => void }) { const [status, setStatus] = useState(selectedCase.status); const [methodology, setMethodology] = useState(selectedCase.methodology || ""); const [editorialNote, setEditorialNote] = useState(selectedCase.editorialNote || ""); const [workflowStatus, setWorkflowStatus] = useState(selectedCase.workflowStatus); const canSave = workflowStatus !== "publicado" || (methodology.trim().length > 0 && editorialNote.trim().length > 0); return <div className="workspace-card editorial-panel"><div className="card-heading"><div><span className="panel-kicker">DECISÃO HUMANA</span><h3>Controle editorial</h3></div><LockIcon /></div><label>Status de trabalho<select value={status} onChange={e => setStatus(e.target.value as typeof status)}>{Object.entries(statusLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label><label>Etapa do fluxo<select value={workflowStatus} onChange={e => setWorkflowStatus(e.target.value as typeof workflowStatus)}>{Object.entries(workflowLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label><label>Metodologia<textarea rows={4} value={methodology} onChange={e => setMethodology(e.target.value)} placeholder="Como as fontes foram comparadas? O que ficou fora do escopo?" /></label><label>Nota editorial pública<textarea rows={4} value={editorialNote} onChange={e => setEditorialNote(e.target.value)} placeholder="Explique o resultado em linguagem clara." /></label><button className="button button-dark full-width" disabled={!canSave} onClick={() => onUpdate({ status, workflowStatus, methodology, editorialNote })}>Salvar decisão <Check size={15} /></button><button className="button button-outline full-width" onClick={onReview}><FileCheck2 size={15} /> Registrar revisão</button>{!canSave && <p className="publish-hint"><AlertCircle size={13} /> Preencha a metodologia e a justificativa pública para publicar.</p>}{workflowStatus !== "publicado" && canSave && <p className="publish-hint"><Clock3 size={13} /> Publicar só depois de registrar uma revisão aprovada.</p>}{reviews.length > 0 && <div className="review-history"><span className="panel-kicker">HISTÓRICO</span>{reviews.slice(0, 3).map(review => <div className="review-history-item" key={review.id}><span className={`review-decision ${review.decision === "aprovar" ? "approved" : ""}`}>{review.decision.replace("_", " ")}</span><span>{new Date(review.createdAt).toLocaleDateString("pt-BR")}</span></div>)}</div>}</div>; }
 
 function LockIcon() { return <span className="lock-icon"><ShieldCheck size={15} /></span>; }
+
+const momentRoleLabels = { original: "Prova original", viral_distorcido: "Versão viral", contextual: "Contexto" } as const;
+
+type MomentRow = {
+  id: number;
+  role: "original" | "viral_distorcido" | "contextual";
+  mediaKind: string;
+  title: string;
+  url: string;
+  sourceName: string;
+  timestampStartSec: number | null;
+  timestampEndSec: number | null;
+  quoteAtMoment: string | null;
+  distortionDescription: string | null;
+  linkedOriginalMomentId: number | null;
+};
+
+/** Instante da fala em formato legível (1h02m03s). */
+function formatTimecode(totalSeconds: number) {
+  const s = Math.max(0, Math.floor(totalSeconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  return [h > 0 ? `${h}h` : "", h > 0 || m > 0 ? `${String(m).padStart(h > 0 ? 2 : 1, "0")}m` : "", `${String(sec).padStart(2, "0")}s`].join("");
+}
+
+/** Aceita "1:05:30", "12:34" ou segundos puros; devolve segundos. */
+function parseTimecodeInput(raw: string): number | undefined {
+  const value = raw.trim();
+  if (!value) return undefined;
+  if (/^\d+$/.test(value)) return Number(value);
+  const parts = value.split(":").map(part => Number(part.trim()));
+  if (parts.some(part => !Number.isFinite(part) || part < 0)) return undefined;
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  return undefined;
+}
+
+function MomentsPanel({ moments, onAdd }: { caseId: number; moments: MomentRow[]; onAdd: () => void }) {
+  const originals = moments.filter(moment => moment.role === "original");
+  const virals = moments.filter(moment => moment.role === "viral_distorcido");
+  return <div className="workspace-card moments-panel">
+    <div className="card-heading"><div><span className="panel-kicker">PROVA ORIGINAL × DISTORÇÃO</span><h3>Momentos indexados <span>{moments.length}</span></h3></div><button className="button button-outline button-small" onClick={onAdd}><Plus size={15} /> Indexar momento</button></div>
+    {moments.length ? <>
+      <div className="moment-tally"><span><i className="mix-official"></i> Prova original <b>{originals.length}</b></span><span><i className="mix-other"></i> Versão viral <b>{virals.length}</b></span></div>
+      <div className="evidence-list">{moments.map(moment => <div className="evidence-row" key={moment.id}>
+        <div className="evidence-row-icon"><GitCompareArrows size={16} /></div>
+        <div className="evidence-row-content">
+          <div className="evidence-row-top"><span className="source-type-label">{momentRoleLabels[moment.role]}</span><span>{moment.mediaKind}</span>{moment.timestampStartSec != null && <span className="moment-timecode">{formatTimecode(moment.timestampStartSec)}{moment.timestampEndSec != null && <>–{formatTimecode(moment.timestampEndSec)}</>}</span>}</div>
+          <h4>{moment.title}</h4>
+          <p>{moment.sourceName}{moment.linkedOriginalMomentId != null && <> · vinculado ao momento #{moment.linkedOriginalMomentId}</>}</p>
+          {moment.quoteAtMoment && <div className="evidence-context">“{moment.quoteAtMoment}”</div>}
+          {moment.distortionDescription && <p className="moment-distortion"><strong>Distorção:</strong> {moment.distortionDescription}</p>}
+          <a href={moment.url} target="_blank" rel="noreferrer">Abrir fonte <ArrowUpRight size={13} /></a>
+        </div>
+      </div>)}</div>
+    </> : <div className="card-empty"><div className="empty-icon"><GitCompareArrows size={16} /></div><p>Indexe a prova original (com o instante da fala) e a versão que circulou. O leitor vê os dois lados na página pública.</p><button className="text-action" onClick={onAdd}>Indexar primeiro momento <ArrowUpRight size={14} /></button></div>}
+  </div>;
+}
+
+function MomentForm({ caseId, originals, onClose }: { caseId: number; originals: MomentRow[]; onClose: () => void }) {
+  const utils = trpc.useUtils();
+  const [form, setForm] = useState({ role: "original" as MomentRow["role"], mediaKind: "video", title: "", url: "", sourceName: "", startAt: "", endAt: "", eventDate: "", quoteAtMoment: "", distortionDescription: "", linkedOriginalMomentId: "", mirrorAsEvidence: true });
+  const update = (key: string, value: string | boolean) => setForm(current => ({ ...current, [key]: value }));
+  const register = trpc.moments.register.useMutation({
+    onSuccess: async result => {
+      await utils.cases.workspace.invalidate({ caseId });
+      onClose();
+      toast.success(result.editorialNote);
+    },
+    onError: e => toast.error(e.message),
+  });
+  const isViral = form.role === "viral_distorcido";
+  const canSave = form.title.trim().length >= 4 && form.url.trim().length > 0 && form.sourceName.trim().length >= 2 && (!isViral || form.distortionDescription.trim().length > 0);
+
+  return <Modal title="Indexar momento" eyebrow="Prova original × distorção" onClose={onClose}>
+    <p className="modal-lede">Ancore o instante em que a fala ou o ato aconteceu e, na versão viral, descreva o que foi cortado ou omitido.</p>
+    <div className="form-grid">
+      <label>Papel deste momento<select value={form.role} onChange={e => update("role", e.target.value)}><option value="original">Prova original</option><option value="viral_distorcido">Versão viral / distorcida</option><option value="contextual">Contexto</option></select></label>
+      <label>Tipo de mídia<select value={form.mediaKind} onChange={e => update("mediaKind", e.target.value)}><option value="video">Vídeo</option><option value="audio">Áudio</option><option value="post">Post</option><option value="documento">Documento</option><option value="outro">Outro</option></select></label>
+      <label className="full-span">Título<input value={form.title} onChange={e => update("title", e.target.value)} placeholder="Ex.: Entrevista completa na comissão, 12/03" /></label>
+      <label>URL<input type="url" value={form.url} onChange={e => update("url", e.target.value)} placeholder="https://..." /></label>
+      <label>Origem / veículo<input value={form.sourceName} onChange={e => update("sourceName", e.target.value)} placeholder="Canal, emissora ou plataforma" /></label>
+      <label>Início do trecho <span className="optional">mm:ss</span><input value={form.startAt} onChange={e => update("startAt", e.target.value)} placeholder="12:34" /></label>
+      <label>Fim do trecho <span className="optional">opcional</span><input value={form.endAt} onChange={e => update("endAt", e.target.value)} placeholder="13:02" /></label>
+      <label>Data do evento <span className="optional">opcional</span><input type="date" value={form.eventDate} onChange={e => update("eventDate", e.target.value)} /></label>
+      {isViral && originals.length > 0 && <label>Vincular à prova original<select value={form.linkedOriginalMomentId} onChange={e => update("linkedOriginalMomentId", e.target.value)}><option value="">Não vincular</option>{originals.map(moment => <option value={String(moment.id)} key={moment.id}>#{moment.id} — {moment.title.slice(0, 60)}</option>)}</select></label>}
+      <label className="full-span">Trecho literal no momento <span className="optional">opcional</span><textarea rows={3} value={form.quoteAtMoment} onChange={e => update("quoteAtMoment", e.target.value)} placeholder="O que foi efetivamente dito nesse instante." /></label>
+      {isViral && <label className="full-span">O que a versão viral distorceu<textarea rows={3} value={form.distortionDescription} onChange={e => update("distortionDescription", e.target.value)} placeholder="O corte omitiu a pergunta anterior, a manchete inverteu o sentido…" /></label>}
+      <label className="full-span checkbox-label"><input type="checkbox" checked={form.mirrorAsEvidence} onChange={e => update("mirrorAsEvidence", e.target.checked)} /> Registrar também na trilha de evidências</label>
+    </div>
+    <div className="modal-actions">
+      <button className="button button-ghost-dark" onClick={onClose}>Cancelar</button>
+      <button className="button button-dark" disabled={!canSave || register.isPending} onClick={() => register.mutate({
+        caseId,
+        role: form.role,
+        mediaKind: form.mediaKind as "video" | "audio" | "post" | "documento" | "outro",
+        title: form.title,
+        url: form.url,
+        sourceName: form.sourceName,
+        timestampStartSec: parseTimecodeInput(form.startAt),
+        timestampEndSec: parseTimecodeInput(form.endAt),
+        eventDate: form.eventDate || undefined,
+        quoteAtMoment: form.quoteAtMoment || undefined,
+        distortionDescription: form.distortionDescription || undefined,
+        linkedOriginalMomentId: form.linkedOriginalMomentId ? Number(form.linkedOriginalMomentId) : undefined,
+        mirrorAsEvidence: form.mirrorAsEvidence,
+      })}>{register.isPending ? "Indexando…" : "Indexar momento"}<ArrowUpRight size={15} /></button>
+    </div>
+  </Modal>;
+}
+type PipelineStep = { step: string; status: "ok" | "pulado" | "erro"; detail: string };
+type FactCheckHit = { claimText: string; publisherName: string; url: string; title: string; textualRating?: string; suggestedRelation: "apoia" | "contradiz" | "contextualiza" | "neutra" };
+
 function AgentPanel({ caseId }: { caseId: number }) {
   const utils = trpc.useUtils();
   const [results, setResults] = useState<DiscoveryResult[]>([]);
+  const [pipelineSteps, setPipelineSteps] = useState<PipelineStep[]>([]);
+  const [factCheckHits, setFactCheckHits] = useState<FactCheckHit[]>([]);
+  const pipeline = trpc.research.prepareCasePipeline.useMutation({
+    onSuccess: async result => {
+      setPipelineSteps(result.steps);
+      setFactCheckHits((result.factChecks ?? []) as FactCheckHit[]);
+      if (result.officialDiscovery) setResults(result.officialDiscovery.results as DiscoveryResult[]);
+      await utils.cases.workspace.invalidate({ caseId });
+      const ran = result.steps.filter(step => step.status === "ok").length;
+      toast.success(ran ? `Fluxo completo: ${ran} etapa(s) trouxeram material` : "Fluxo completo executado, sem material novo");
+    },
+    onError: e => toast.error(e.message),
+  });
   const crossCheck = trpc.research.crossCheckOfficial.useMutation({
     onSuccess: result => {
       setResults(result.results as DiscoveryResult[]);
@@ -98,6 +227,9 @@ function AgentPanel({ caseId }: { caseId: number }) {
       <div className="agent-heading"><span className="agent-orbit"><Bot size={17} /></span><div><span className="panel-kicker">AGENTE DE APOIO</span><h3>Cruzamento com fontes oficiais</h3></div><span className="live-label"><i></i> pronto</span></div>
       <p>Busca automaticamente por páginas em domínios .gov.br, .jus.br e .leg.br relacionadas à alegação, nos últimos 180 dias. Cada resultado é uma pista — só vira evidência quando você registrar.</p>
       <button className="button button-dark button-small" disabled={crossCheck.isPending} onClick={() => crossCheck.mutate({ caseId })}>{crossCheck.isPending ? "Cruzando…" : "Cruzar fontes oficiais"}<Sparkles size={14} /></button>
+      <button className="button button-outline button-small full-width" disabled={pipeline.isPending} onClick={() => pipeline.mutate({ caseId })}>{pipeline.isPending ? "Rodando fluxo…" : "Rodar fluxo completo"}<Layers3 size={14} /></button>
+      {pipelineSteps.length > 0 && <div className="pipeline-steps">{pipelineSteps.map(step => <div className={`pipeline-step pipeline-${step.status}`} key={step.step}><strong>{step.step}</strong><span>{step.detail}</span></div>)}</div>}
+      {factCheckHits.length > 0 && <div className="historical-results">{factCheckHits.map(hit => <div className="historical-result" key={hit.url}><div><span>{hit.publisherName}{hit.textualRating ? ` · ${hit.textualRating}` : ""}</span><strong>{hit.title}</strong><small>{hit.url}</small></div><div className="historical-result-actions"><a href={hit.url} target="_blank" rel="noreferrer" className="registry-probe">Abrir</a><button className="registry-probe" disabled={captureFinding.isPending} onClick={() => captureFinding.mutate({ caseId, title: hit.title.slice(0, 500), url: hit.url, sourceName: hit.publisherName, sourceType: "reportagem", context: `Checagem já publicada (ClaimReview) por ${hit.publisherName}${hit.textualRating ? `, classificada como "${hit.textualRating}"` : ""}. Alegação avaliada: "${hit.claimText}". Abra e confira antes de citar; a classificação do veículo não é o veredito deste caso.`, excerpt: "", relation: hit.suggestedRelation })}>Registrar</button></div></div>)}</div>}
       {results.length > 0 && <div className="historical-results">{results.map(result => <div className="historical-result" key={result.url}><div><span>{result.publisher} · {result.publishedAt || "data não informada"}</span><strong>{result.title}</strong><small>{result.url}</small></div><div className="historical-result-actions"><a href={result.url} target="_blank" rel="noreferrer" className="registry-probe">Abrir</a><button className="registry-probe" disabled={captureFinding.isPending} onClick={() => captureFinding.mutate({ caseId, findingId: result.findingId ?? undefined, title: result.title, url: result.url, sourceName: result.publisher, sourceType: "oficial", context: `Encontrado via cruzamento automático com fontes oficiais (${result.discoverySource}). A página deve ser aberta e conferida editorialmente antes de ser citada. URL de descoberta: ${result.discoveryUrl}`, excerpt: "", relation: "contextualiza" })}>Registrar</button></div></div>)}</div>}
     </div>
   );

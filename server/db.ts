@@ -2,6 +2,7 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   caseAnalyses,
+  caseSourceMoments,
   historicalFindings,
   caseReviews,
   researchTasks,
@@ -101,32 +102,34 @@ export async function getPublishedCaseBySlug(slug: string) {
 
 export async function getCaseBundle(caseId: number) {
   const db = await getDb();
-  if (!db) return { caseRecord: undefined, evidenceRows: [], reviewRows: [], analysisRows: [] };
-  const [caseRows, evidenceRows, reviewRows, analysisRows] = await Promise.all([
+  if (!db) return { caseRecord: undefined, evidenceRows: [], reviewRows: [], analysisRows: [], momentRows: [] };
+  const [caseRows, evidenceRows, reviewRows, analysisRows, momentRows] = await Promise.all([
     db.select().from(factCheckCases).where(eq(factCheckCases.id, caseId)).limit(1),
     db.select().from(evidences).where(eq(evidences.caseId, caseId)).orderBy(desc(evidences.accessedAt)),
     db.select().from(caseReviews).where(eq(caseReviews.caseId, caseId)).orderBy(desc(caseReviews.createdAt)),
     db.select().from(caseAnalyses).where(eq(caseAnalyses.caseId, caseId)).orderBy(desc(caseAnalyses.createdAt)),
+    db.select().from(caseSourceMoments).where(eq(caseSourceMoments.caseId, caseId)).orderBy(desc(caseSourceMoments.createdAt)),
   ]);
-  return { caseRecord: caseRows[0], evidenceRows, reviewRows, analysisRows };
+  return { caseRecord: caseRows[0], evidenceRows, reviewRows, analysisRows, momentRows };
 }
 
 export async function getPublishedBundle(slug: string) {
   const db = await getDb();
-  if (!db) return { caseRecord: undefined, evidenceRows: [], reviewRows: [], analysisRows: [] };
+  if (!db) return { caseRecord: undefined, evidenceRows: [], reviewRows: [], analysisRows: [], momentRows: [] };
   const caseRows = await db
     .select()
     .from(factCheckCases)
     .where(and(eq(factCheckCases.slug, slug), eq(factCheckCases.workflowStatus, "publicado")))
     .limit(1);
   const caseRecord = caseRows[0];
-  if (!caseRecord) return { caseRecord: undefined, evidenceRows: [], reviewRows: [], analysisRows: [] };
-  const [evidenceRows, reviewRows, analysisRows] = await Promise.all([
+  if (!caseRecord) return { caseRecord: undefined, evidenceRows: [], reviewRows: [], analysisRows: [], momentRows: [] };
+  const [evidenceRows, reviewRows, analysisRows, momentRows] = await Promise.all([
     db.select().from(evidences).where(eq(evidences.caseId, caseRecord.id)).orderBy(desc(evidences.accessedAt)),
     db.select().from(caseReviews).where(eq(caseReviews.caseId, caseRecord.id)).orderBy(desc(caseReviews.createdAt)),
     db.select().from(caseAnalyses).where(eq(caseAnalyses.caseId, caseRecord.id)).orderBy(desc(caseAnalyses.createdAt)),
+    db.select().from(caseSourceMoments).where(eq(caseSourceMoments.caseId, caseRecord.id)).orderBy(desc(caseSourceMoments.createdAt)),
   ]);
-  return { caseRecord, evidenceRows, reviewRows, analysisRows };
+  return { caseRecord, evidenceRows, reviewRows, analysisRows, momentRows };
 }
 
 export async function getCaseStats() {
@@ -307,6 +310,38 @@ export async function markHistoricalFindingEvidence(findingId: number, evidenceI
   if (!db) throw new Error("Banco de dados indisponível");
   await db.update(historicalFindings).set({ registeredEvidenceId: evidenceId, needsEditorialOpen: "nao" }).where(eq(historicalFindings.id, findingId));
   const rows = await db.select().from(historicalFindings).where(eq(historicalFindings.id, findingId)).limit(1);
+  return rows[0];
+}
+
+export async function listSourceMoments(caseId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(caseSourceMoments)
+    .where(eq(caseSourceMoments.caseId, caseId))
+    .orderBy(desc(caseSourceMoments.createdAt));
+}
+
+export async function createSourceMoment(input: {
+  caseId: number;
+  role: "original" | "viral_distorcido" | "contextual";
+  mediaKind: "video" | "audio" | "post" | "documento" | "outro";
+  title: string;
+  url: string;
+  sourceName: string;
+  timestampStartSec?: number;
+  timestampEndSec?: number;
+  eventDate?: Date;
+  quoteAtMoment?: string;
+  distortionDescription?: string;
+  linkedOriginalMomentId?: number;
+  createdBy: number;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+  const result = await db.insert(caseSourceMoments).values(input);
+  const rows = await db.select().from(caseSourceMoments).where(eq(caseSourceMoments.id, Number(result[0].insertId))).limit(1);
   return rows[0];
 }
 

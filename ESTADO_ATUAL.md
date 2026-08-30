@@ -112,3 +112,43 @@ A tabela foi criada pela migração `0004_past_dracula.sql`; como o primeiro ín
 O intake multimodal (texto/link/print) extrai a alegação, mas até aqui o cruzamento com fontes exigia que o editor preenchesse manualmente termo, datas e domínios na aba Orquestração. A rota `research.crossCheckOfficial` fecha esse laço: a partir do texto da própria alegação (ou de um termo alternativo, se informado), monta uma busca no RSS do Google Notícias restrita por `site:` a um catálogo de domínios `.gov.br`, `.jus.br`, `.leg.br` e `ebc.com.br` (IBGE, Banco Central, Planalto, Anvisa, TSE, STF, Câmara, Senado, Agência Brasil), na janela dos últimos 180 dias. Reaproveita a mesma infraestrutura de `research.discover` (mesmo parser de RSS, mesma persistência em `historical_findings`, mesmo `research.recordFinding` para promover um achado a evidência).
 
 No painel do caso, o cartão "Agente de apoio" — antes um placeholder estático — ganhou o botão "Cruzar fontes oficiais": um clique já traz candidatos com título, veículo e link, para o editor abrir, conferir e registrar. Como antes, a descoberta nunca é evidência por si só e o agente não tem acesso a status, veredito, revisão ou publicação.
+
+## Atualização — prova original × distorção, fontes oficiais e fluxo completo
+
+Esta etapa traz para o código a visão descrita em `FLOW.md`: em vez de parar num rótulo binário,
+o caso passa a carregar **os dois lados** de uma fala — o instante original e a versão que circulou.
+
+**Momentos indexados** (`case_source_moments`, migração `0007_source_moments.sql`). Cada momento
+tem papel (`original`, `viral_distorcido`, `contextual`), tipo de mídia, URL, origem, o instante em
+segundos (início e fim), o trecho literal dito naquele ponto e — na versão viral — a descrição
+obrigatória da distorção. O backend recusa uma versão viral sem essa descrição e só aceita vincular
+a viral a um momento que pertença ao mesmo caso e esteja marcado como prova original. Em vídeos do
+YouTube o link publicado já abre no instante indexado. Cada momento pode ser espelhado na trilha de
+evidências, com a relação sugerida conforme o papel (`contradiz` para a viral, `contextualiza` para
+a original). Na página pública, as duas colunas aparecem lado a lado para o leitor conferir sozinho.
+
+**Fontes oficiais sem credencial** (`server/_core/officialSources.ts`). Conector do SGS do Banco
+Central com catálogo de séries usadas em checagem econômica (IPCA, IPCA-15, IPCA 12 meses, Selic,
+CDI, dólar, euro). `official.suggest` deriva a série da própria alegação; `official.crossCheckBcb`
+consulta a série e registra evidência candidata já datada pelo último ponto da série.
+
+**Checagens já publicadas** (`server/_core/googleFactCheck.ts`). Busca no Google Fact Check Tools
+(ClaimReview) por checagens de outros veículos. O rótulo do veículo é traduzido em relação editorial
+por uma heurística deliberadamente cautelosa: rótulos qualificados ("parcialmente verdadeiro",
+"mostly false") viram `contextualiza`, nunca apoio ou contradição plenos — a classificação de outro
+veículo não é, sozinha, o veredito deste caso. Sem `GOOGLE_FACTCHECK_API_KEY` a etapa é reportada
+como "pulada" e o resto do fluxo continua.
+
+**Rodar fluxo completo** (`research.prepareCasePipeline`). Dispara em paralelo as três fontes
+acima e devolve um relatório por etapa (`ok` / `pulado` / `erro`), para o editor ver exatamente o
+que rodou e o que faltou configurar. Nenhuma etapa decide status ou veredito.
+
+**Laudo "fulano disse isso?"** (`analysis.quoteLaudo`). Avalia atribuição da fala e uso fora de
+contexto, considerando os momentos indexados e as evidências já registradas. Produz material
+estruturado para o editor — sem campo de veredito.
+
+### Fora deste deploy
+
+A busca de fala original no YouTube e a transcrição por Whisper, previstas em `FLOW.md`, dependiam
+do proxy interno da plataforma Manus (`BUILT_IN_FORGE_API_URL`), que não existe nesta instalação
+standalone. Reativá-las exigiria um provedor próprio de busca de vídeo e de transcrição.

@@ -201,12 +201,48 @@ export const caseAnalyses = mysqlTable(
   }),
 );
 
+/**
+ * Momentos indexados: prova original vs versão viral/distorcida.
+ * Permite ancorar o instante (vídeo/áudio) e descrever o que a versão viral
+ * cortou, omitiu ou refraseou — para o leitor comparar os dois lados.
+ */
+export const caseSourceMoments = mysqlTable(
+  "case_source_moments",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    caseId: int("caseId").notNull(),
+    role: mysqlEnum("role", ["original", "viral_distorcido", "contextual"]).default("original").notNull(),
+    mediaKind: mysqlEnum("mediaKind", ["video", "audio", "post", "documento", "outro"]).default("video").notNull(),
+    title: text("title").notNull(),
+    url: text("url").notNull(),
+    sourceName: varchar("sourceName", { length: 240 }).notNull(),
+    /** Segundo inicial no vídeo/áudio (prova do instante) */
+    timestampStartSec: int("timestampStartSec"),
+    timestampEndSec: int("timestampEndSec"),
+    eventDate: timestamp("eventDate"),
+    /** Trecho literal no momento original */
+    quoteAtMoment: text("quoteAtMoment"),
+    /** O que a versão viral omitiu, cortou ou distorceu */
+    distortionDescription: text("distortionDescription"),
+    /** Liga a versão distorcida à prova original */
+    linkedOriginalMomentId: int("linkedOriginalMomentId"),
+    createdBy: int("createdBy").notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    caseIdx: index("case_source_moments_case_idx").on(table.caseId),
+    roleIdx: index("case_source_moments_role_idx").on(table.role),
+  }),
+);
+
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 export type FactCheckCase = typeof factCheckCases.$inferSelect;
 export type Evidence = typeof evidences.$inferSelect;
 export type CaseReview = typeof caseReviews.$inferSelect;
 export type CaseAnalysis = typeof caseAnalyses.$inferSelect;
+export type CaseSourceMoment = typeof caseSourceMoments.$inferSelect;
 export type SourceConnection = typeof sourceConnections.$inferSelect;
 export type SourceCaseLink = typeof sourceCaseLinks.$inferSelect;
 export type ResearchTask = typeof researchTasks.$inferSelect;
