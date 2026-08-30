@@ -499,13 +499,6 @@
             "taskId"
           ],
           "isUnique": false
-        },
-        "historical_findings_final_url_idx": {
-          "name": "historical_findings_final_url_idx",
-          "columns": [
-            "finalUrl"
-          ],
-          "isUnique": false
         }
       },
       "foreignKeys": {},

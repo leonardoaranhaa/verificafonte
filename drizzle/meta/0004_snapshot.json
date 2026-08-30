@@ -420,7 +420,7 @@
         },
         "finalUrl": {
           "name": "finalUrl",
-          "type": "text",
+          "type": "varchar(2048)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
@@ -497,13 +497,6 @@
           "name": "historical_findings_task_idx",
           "columns": [
             "taskId"
-          ],
-          "isUnique": false
-        },
-        "historical_findings_final_url_idx": {
-          "name": "historical_findings_final_url_idx",
-          "columns": [
-            "finalUrl"
           ],
           "isUnique": false
         }
