@@ -14,7 +14,8 @@ async function readIntegrations(env: Record<string, string | undefined>) {
   try {
     const { appRouter } = await import("./routers");
     const ctx = {
-      user: { id: 1, openId: "editor", name: "Editor", email: null, loginMethod: "email", passwordHash: null, role: "user", createdAt: new Date(), updatedAt: new Date(), lastSignedIn: new Date() },
+      // system.integrations é da bancada, então exige papel editorial.
+      user: { id: 1, openId: "editor", name: "Editor", email: null, loginMethod: "email", passwordHash: null, role: "editor", createdAt: new Date(), updatedAt: new Date(), lastSignedIn: new Date() },
       req: { protocol: "https", headers: {} },
       res: {},
     } as unknown as Parameters<typeof appRouter.createCaller>[0];

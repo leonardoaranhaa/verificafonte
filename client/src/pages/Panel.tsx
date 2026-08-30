@@ -23,7 +23,7 @@ export default function Panel() {
   const { user, loading } = useAuth();
   const [, setLocation] = useLocation();
   const caseId = readCaseId();
-  const [activeTab, setActiveTab] = useState<"workspace" | "review" | "orchestration">("workspace");
+  const [activeTab, setActiveTab] = useState<"workspace" | "review" | "orchestration" | "equipe">("workspace");
   const [showEvidenceForm, setShowEvidenceForm] = useState(false);
   const [showReviewForm, setShowReviewForm] = useState(false);
   const [showMomentForm, setShowMomentForm] = useState(false);
@@ -45,6 +45,8 @@ export default function Panel() {
 
   if (loading) return <div className="panel-loading"><div className="loading-orbit"></div><p>Carregando espaço editorial…</p></div>;
   if (!user) return <div className="auth-gate"><Link href="/" className="brand"><span className="brand-mark"><Fingerprint size={18} /></span><span>verifica<span>fonte</span></span></Link><div className="auth-card"><div className="auth-icon"><LogIn size={22} /></div><div className="eyebrow">Área editorial</div><h1>Entre para abrir a bancada de checagem.</h1><p>O painel reúne rascunhos, evidências e revisões. O conteúdo só aparece no acervo depois de uma decisão editorial registrada.</p><Link href="/entrar" className="button button-dark">Entrar com minha conta <ArrowUpRight size={16} /></Link><Link href="/" className="back-link"><ArrowLeft size={14} /> Voltar para a página pública</Link></div></div>;
+  // O cadastro é aberto: estar logado não dá acesso à bancada.
+  if (user.role !== "editor" && user.role !== "admin") return <div className="auth-gate"><Link href="/" className="brand"><span className="brand-mark"><Fingerprint size={18} /></span><span>verifica<span>fonte</span></span></Link><div className="auth-card"><div className="auth-icon"><ShieldCheck size={22} /></div><div className="eyebrow">Acesso editorial pendente</div><h1>Sua conta ainda não faz parte da redação.</h1><p>A bancada guarda apurações em andamento, por isso o acesso é concedido pessoa a pessoa. Peça a um administrador para liberar seu acesso — ele encontra sua conta pelo e-mail <strong>{user.email || user.openId}</strong>.</p><Link href="/" className="button button-dark">Ver o acervo público <ArrowUpRight size={16} /></Link><Link href="/" className="back-link"><ArrowLeft size={14} /> Voltar para a página pública</Link></div></div>;
 
   return <div className="panel-shell">
     <aside className="panel-sidebar">
@@ -53,12 +55,13 @@ export default function Panel() {
       <button className={`sidebar-item ${activeTab === "workspace" ? "active" : ""}`} onClick={() => setActiveTab("workspace")}><Layers3 size={17} /><span>Casos</span><span className="sidebar-count">{cases?.length ?? 0}</span></button>
       <button className={`sidebar-item ${activeTab === "review" ? "active" : ""}`} onClick={() => setActiveTab("review")}><FileCheck2 size={17} /><span>Revisão editorial</span></button>
       <button className={`sidebar-item ${activeTab === "orchestration" ? "active" : ""}`} onClick={() => setActiveTab("orchestration")}><Bot size={17} /><span>Orquestração</span><span className="live-dot"></span></button>
-      <div className="sidebar-bottom"><div className="sidebar-rule"></div><Link href="/" className="sidebar-item"><ArrowLeft size={17} /><span>Voltar ao público</span></Link><div className="user-chip"><span className="user-avatar"><UserRound size={15} /></span><span><strong>{user.name || "Editor"}</strong><small>{user.role === "admin" ? "Administrador" : "Colaborador"}</small></span></div></div>
+      {user.role === "admin" && <button className={`sidebar-item ${activeTab === "equipe" ? "active" : ""}`} onClick={() => setActiveTab("equipe")}><UserRound size={17} /><span>Equipe</span></button>}
+      <div className="sidebar-bottom"><div className="sidebar-rule"></div><Link href="/" className="sidebar-item"><ArrowLeft size={17} /><span>Voltar ao público</span></Link><div className="user-chip"><span className="user-avatar"><UserRound size={15} /></span><span><strong>{user.name || "Editor"}</strong><small>{user.role === "admin" ? "Administrador" : user.role === "editor" ? "Editor" : "Sem acesso editorial"}</small></span></div></div>
     </aside>
     <main className="panel-main">
-      <div className="panel-topbar"><div className="mobile-panel-menu"><Menu size={18} /></div><div><span className="panel-kicker">ESPAÇO DE TRABALHO</span><h1>{activeTab === "workspace" ? "Casos de verificação" : activeTab === "review" ? "Revisão editorial" : "Orquestração"}</h1></div><button className="button button-accent button-small" onClick={() => setLocation("/?novo=1")}><Plus size={15} /> Nova alegação</button></div>
+      <div className="panel-topbar"><div className="mobile-panel-menu"><Menu size={18} /></div><div><span className="panel-kicker">ESPAÇO DE TRABALHO</span><h1>{activeTab === "workspace" ? "Casos de verificação" : activeTab === "review" ? "Revisão editorial" : activeTab === "equipe" ? "Equipe e acessos" : "Orquestração"}</h1></div><button className="button button-accent button-small" onClick={() => setLocation("/?novo=1")}><Plus size={15} /> Nova alegação</button></div>
       <IntegrationsStrip />
-      {activeTab === "orchestration" ? <Orchestration /> : activeTab === "review" ? <ReviewQueue cases={cases ?? []} onOpen={id => setLocation(`/painel?caseId=${id}`)} /> : <div className="workspace-layout">
+      {activeTab === "equipe" ? <TeamAccess currentUserId={user.id} /> : activeTab === "orchestration" ? <Orchestration /> : activeTab === "review" ? <ReviewQueue cases={cases ?? []} onOpen={id => setLocation(`/painel?caseId=${id}`)} /> : <div className="workspace-layout">
         <section className="case-list-pane"><div className="pane-title"><div><span className="panel-kicker">SEUS CASOS</span><h2>Fila de verificação</h2></div><span className="case-total">{cases?.length ?? 0}</span></div><div className="case-list">{casesLoading ? <div className="list-placeholder">Buscando casos…</div> : cases?.length ? cases.map(item => <button className={`case-list-item ${item.id === caseId ? "selected" : ""}`} key={item.id} onClick={() => setLocation(`/painel?caseId=${item.id}`)}><div className="case-list-meta"><span className={`status-dot ${statusTone[item.status]}`}></span><span>{workflowLabels[item.workflowStatus]}</span><span>·</span><span>{formatDate(item.updatedAt)}</span></div><strong>{item.claimText}</strong><ChevronRight size={16} /></button>) : <div className="list-empty"><div className="empty-icon"><FilePlus2 size={17} /></div><p>Seus casos aparecem aqui.</p><button className="button button-dark button-small" onClick={() => setLocation("/")}>Criar primeiro caso</button></div>}</div></section>
         <section className="case-workspace">{!caseId ? <WorkspaceWelcome /> : bundleLoading ? <div className="workspace-empty"><div className="loading-orbit"></div><p>Carregando caso…</p></div> : selectedCase ? <><div className="workspace-heading"><div><div className="breadcrumb"><span>Casos</span><ChevronRight size={13} /><span>{selectedCase.workflowStatus === "publicado" ? "Público" : "Em trabalho"}</span></div><h2>{selectedCase.claimText}</h2>{selectedCase.claimUrl && <a href={selectedCase.claimUrl} target="_blank" rel="noreferrer" className="origin-link"><Link2 size={14} /> Ver publicação original <ArrowUpRight size={13} /></a>}</div><span className={`status-pill ${statusTone[selectedCase.status]}`}>{statusLabels[selectedCase.status]}</span></div><div className="case-subnav"><button className="subnav-active">Visão geral</button><span>Atualizado em {formatDate(selectedCase.updatedAt)}</span><span className="workflow-badge">{workflowLabels[selectedCase.workflowStatus]}</span></div><div className="workspace-grid"><div className="workspace-primary"><EvidencePanel evidence={bundle.evidenceRows} onAdd={() => setShowEvidenceForm(true)} sourceMix={sourceMix} /><MomentsPanel caseId={caseId} moments={bundle.momentRows} onAdd={() => setShowMomentForm(true)} /><AnalysisPanel analysis={lastAnalysis} isPending={generateAnalysis.isPending} disabled={!evidenceCount} onGenerate={() => generateAnalysis.mutate({ caseId })} /></div><aside className="workspace-aside"><EditorialPanel selectedCase={selectedCase} reviews={bundle.reviewRows} onUpdate={(payload) => updateWorkflow.mutate({ caseId, ...payload })} onReview={() => setShowReviewForm(true)} /><AgentPanel caseId={caseId} /></aside></div></> : <div className="workspace-empty"><AlertCircle size={20} /><p>Não foi possível localizar este caso.</p></div>}</section>
       </div>}
@@ -83,6 +86,49 @@ function IntegrationsStrip() {
     <div>
       <strong>{missing.length === 1 ? "Uma integração não está configurada" : `${missing.length} integrações não estão configuradas`}</strong>
       {missing.map(item => <span key={item.key}><b>{item.label}</b> — {item.enables} {item.requires && <code>{item.requires}</code>}</span>)}
+    </div>
+  </div>;
+}
+
+const roleLabels = { user: "Sem acesso editorial", editor: "Editor", admin: "Administrador" } as const;
+
+/**
+ * Gestão de acesso. O cadastro é aberto, então é aqui que uma conta vira parte
+ * da redação — sem esta tela ninguém consegue liberar o primeiro editor.
+ */
+function TeamAccess({ currentUserId }: { currentUserId: number }) {
+  const utils = trpc.useUtils();
+  const { data: users, isLoading, error } = trpc.admin.users.useQuery();
+  const setRole = trpc.admin.setRole.useMutation({
+    onSuccess: async updated => {
+      await utils.admin.users.invalidate();
+      toast.success(`${updated.name || updated.email || "Conta"} agora é ${roleLabels[updated.role]}`);
+    },
+    onError: e => toast.error(e.message),
+  });
+
+  return <div className="review-queue">
+    <div className="queue-intro">
+      <div className="eyebrow">Quem pode apurar</div>
+      <h2>O acesso à bancada é concedido pessoa a pessoa.</h2>
+      <p>Qualquer um pode criar uma conta, mas uma conta nova não lê nem publica nada. Promova a <strong>Editor</strong> quem é da redação; <strong>Administrador</strong> também gerencia esta lista.</p>
+    </div>
+    <div className="review-queue-card">
+      <div className="card-heading"><div><span className="panel-kicker">CONTAS</span><h3>{users?.length ?? 0} conta{users?.length === 1 ? "" : "s"} registrada{users?.length === 1 ? "" : "s"}</h3></div><UserRound size={20} /></div>
+      {isLoading ? <div className="list-placeholder">Carregando contas…</div>
+        : error ? <div className="queue-empty"><AlertCircle size={18} /><p>{error.message}</p></div>
+        : users?.length ? <div className="registry-list">{users.map(item => <div className="registry-item" key={item.id}>
+            <span className={`status-dot ${item.role === "user" ? "status-insufficient" : "status-confirmed"}`}></span>
+            <span><strong>{item.name || item.email || item.openId}</strong><small>{item.email || item.openId} · {roleLabels[item.role]}</small></span>
+            {item.id === currentUserId
+              ? <em>você</em>
+              : <select value={item.role} disabled={setRole.isPending} onChange={e => setRole.mutate({ userId: item.id, role: e.target.value as "user" | "editor" | "admin" })}>
+                  <option value="user">Sem acesso</option>
+                  <option value="editor">Editor</option>
+                  <option value="admin">Administrador</option>
+                </select>}
+          </div>)}</div>
+        : <div className="queue-empty"><Check size={18} /><p>Nenhuma conta registrada ainda.</p></div>}
     </div>
   </div>;
 }

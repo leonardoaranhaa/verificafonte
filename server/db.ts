@@ -66,6 +66,39 @@ export async function getUserByOpenId(openId: string) {
   return result[0];
 }
 
+/**
+ * Diagnóstico de bootstrap: uma instalação sem nenhum admin não tem como
+ * conceder acesso editorial a ninguém, e o produto fica inutilizável em
+ * silêncio. Chamado na subida do servidor para avisar em log.
+ */
+export async function countAdmins() {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select({ total: sql<number>`count(*)` }).from(users).where(eq(users.role, "admin"));
+  return Number(rows[0]?.total ?? 0);
+}
+
+export async function listUsers() {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select({ id: users.id, openId: users.openId, name: users.name, email: users.email, role: users.role, createdAt: users.createdAt, lastSignedIn: users.lastSignedIn })
+    .from(users)
+    .orderBy(desc(users.createdAt));
+}
+
+export async function setUserRole(userId: number, role: "user" | "editor" | "admin") {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+  await db.update(users).set({ role }).where(eq(users.id, userId));
+  const rows = await db
+    .select({ id: users.id, openId: users.openId, name: users.name, email: users.email, role: users.role })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  return rows[0];
+}
+
 export async function listCases() {
   const db = await getDb();
   if (!db) return [];
