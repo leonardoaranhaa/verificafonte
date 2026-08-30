@@ -84,7 +84,7 @@ a { color: inherit; text-decoration: none; }
 
 /* Public homepage */
 .site-header { position: absolute; z-index: 5; top: 0; width: 100%; border-bottom: 1px solid rgba(246,244,239,.12); }
-.header-inner, .section-inner { width: min(1140px, calc(100% - 64px)); margin: 0 auto; }
+.header-inner, .section-inner, .mobile-nav { width: min(1140px, calc(100% - 64px)); margin: 0 auto; }
 .header-inner { display: flex; align-items: center; justify-content: space-between; height: 78px; }
 .header-inner .brand { color: var(--paper); }
 .desktop-nav { display: flex; align-items: center; gap: 32px; margin-left: 60px; color: rgba(246,244,239,.6); font-size: 12px; }
@@ -96,8 +96,8 @@ a { color: inherit; text-decoration: none; }
 /* Painel de navegação do cabeçalho público no mobile. Antes o hamburger não
    tinha ação e, abaixo de 720px, nem o link de entrar aparecia: no celular
    não havia caminho para o painel editorial. */
-.mobile-nav { display: none; flex-direction: column; gap: 4px; padding: 12px 0 18px; border-top: 1px solid rgba(246,244,239,.12); }
-.mobile-nav a, .mobile-nav .button { display: flex; align-items: center; gap: 9px; min-height: 46px; padding: 0 4px; color: rgba(246,244,239,.82); font-size: 14px; }
+.mobile-nav { display: none; flex-direction: column; gap: 2px; padding: 10px 0 16px; border-top: 1px solid rgba(246,244,239,.12); }
+.mobile-nav a { display: flex; align-items: center; gap: 9px; min-height: 46px; color: rgba(246,244,239,.82); font-size: 14px; }
 .mobile-nav a:hover { color: white; }
 .mobile-nav .button { justify-content: center; margin-top: 8px; padding: 12px 16px; }
 .hero-section { position: relative; min-height: 680px; overflow: hidden; background: var(--ink); }
@@ -227,8 +227,8 @@ a { color: inherit; text-decoration: none; }
 .panel-topbar { display: flex; align-items: center; justify-content: space-between; min-height: 113px; padding: 0 40px; border-bottom: 1px solid var(--line); background: var(--paper-bright); }
 .panel-topbar h1 { margin: 7px 0 0; font-family: var(--font-display); font-size: 29px; font-weight: 500; letter-spacing: -.04em; }
 /* Só aparece no breakpoint mobile, onde a sidebar vira menu recolhível. */
-.mobile-panel-menu { display: none; align-items: center; justify-content: center; width: 40px; height: 40px; margin-right: 4px; border: 1px solid var(--line); background: transparent; color: var(--ink); }
-.mobile-panel-menu:hover { background: var(--muted-paper); }
+.mobile-panel-menu { display: none; align-items: center; justify-content: center; width: 40px; height: 40px; border: 1px solid rgba(246,244,239,.22); background: transparent; color: var(--paper); }
+.mobile-panel-menu:hover { border-color: rgba(246,244,239,.5); background: rgba(255,255,255,.06); }
 .workspace-layout { display: grid; grid-template-columns: 340px 1fr; min-height: calc(100vh - 113px); }
 .case-list-pane { border-right: 1px solid var(--line); background: #f1f0eb; }
 .pane-title { display: flex; align-items: end; justify-content: space-between; min-height: 93px; padding: 24px 25px 20px; border-bottom: 1px solid var(--line); }
@@ -499,7 +499,7 @@ a { color: inherit; text-decoration: none; }
 .not-found-copy p { margin: 0 0 27px; color: rgba(246,244,239,.6); font-size: 13px; }
 
 @media (max-width: 1000px) {
-  .header-inner, .hero-inner, .hero-footer, .stats-inner, .section-inner, .public-case-header-inner, .public-case-container { width: min(100% - 44px, 760px); }
+  .header-inner, .hero-inner, .hero-footer, .stats-inner, .section-inner, .public-case-header-inner, .public-case-container, .mobile-nav { width: min(100% - 44px, 760px); }
   .desktop-nav { display: none; }
   .mobile-menu { display: block; }
   .mobile-nav { display: flex; }
@@ -517,7 +517,7 @@ a { color: inherit; text-decoration: none; }
   .case-body { gap: 45px; }
 }
 @media (max-width: 720px) {
-  .header-inner, .hero-inner, .hero-footer, .stats-inner, .section-inner, .public-case-header-inner, .public-case-container { width: calc(100% - 36px); }
+  .header-inner, .hero-inner, .hero-footer, .stats-inner, .section-inner, .public-case-header-inner, .public-case-container, .mobile-nav { width: calc(100% - 36px); }
   .header-inner { height: 68px; }
   .header-actions .header-link { display: none; }
   .header-actions .button { display: none; }
@@ -552,7 +552,8 @@ a { color: inherit; text-decoration: none; }
   .form-grid { display: block; }
   .panel-sidebar { position: static; width: 100%; min-height: auto; padding: 16px 18px; }
   .panel-shell { display: block; }
-  .panel-brand { flex-direction: row; align-items: center; justify-content: space-between; margin: 0 5px 13px; }
+  .panel-brand { flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; margin: 0 5px 13px; }
+  .panel-brand .panel-version { margin-left: auto; }
   /* A navegação recolhe atrás do hamburger em vez de sumir: antes, os itens
      ficavam display:none e no lugar entrava um texto decorativo que parecia
      menu mas não clicava — no celular a bancada ficava sem navegação. */
