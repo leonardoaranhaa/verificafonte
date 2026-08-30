@@ -61,3 +61,14 @@ describe("auth.logout", () => {
     });
   });
 });
+
+describe("auth.me", () => {
+  it("never exposes the password hash to the client", async () => {
+    const { ctx } = createAuthContext();
+    const caller = appRouter.createCaller(ctx);
+
+    const result = await caller.auth.me();
+
+    expect(result).not.toHaveProperty("passwordHash");
+  });
+});
