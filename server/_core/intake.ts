@@ -1,3 +1,4 @@
+import { isPublicHttpsUrl, safeFetch } from "./safeFetch";
 import { invokeLLM } from "./llm";
 
 export type ExtractedClaim = {
@@ -23,21 +24,6 @@ const CLAIM_EXTRACTION_SCHEMA = {
 
 const SYSTEM_PROMPT =
   "Você ajuda uma redação de checagem de fatos a transformar material bruto (link ou print de rede social) em uma alegação verificável, objetiva, em uma única frase declarativa. Nunca avalie se a alegação é verdadeira ou falsa e nunca decida um veredito. Não invente informação que não esteja no material fornecido. Se o material não contiver uma alegação clara e checável, diga isso no campo notes e use confiança baixa.";
-
-function isPublicHttpsUrl(value: string): boolean {
-  const url = new URL(value);
-  const hostname = url.hostname.toLowerCase();
-  return (
-    url.protocol === "https:" &&
-    hostname !== "localhost" &&
-    hostname !== "::1" &&
-    !hostname.startsWith("127.") &&
-    !hostname.startsWith("10.") &&
-    !hostname.startsWith("192.168.") &&
-    !/^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname) &&
-    !hostname.startsWith("169.254.")
-  );
-}
 
 function stripHtml(raw: string): string {
   return raw
@@ -69,10 +55,9 @@ export async function extractClaimFromUrl(url: string): Promise<ExtractedClaim> 
   if (!isPublicHttpsUrl(url)) {
     throw new Error("Apenas links HTTPS públicos podem ser usados como origem da alegação.");
   }
-  const response = await fetch(url, {
-    method: "GET",
-    redirect: "follow",
-    signal: AbortSignal.timeout(10000),
+  // safeFetch revalida cada redirect: um host público pode apontar para a rede interna.
+  const response = await safeFetch(url, {
+    timeoutMs: 10000,
     headers: { accept: "text/html,application/xhtml+xml" },
   });
   if (!response.ok) throw new Error(`Não foi possível acessar este link agora (HTTP ${response.status}).`);

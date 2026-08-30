@@ -15,7 +15,12 @@ export const users = mysqlTable("users", {
   email: varchar("email", { length: 320 }),
   loginMethod: varchar("loginMethod", { length: 64 }),
   passwordHash: text("passwordHash"),
-  role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
+  /**
+   * Papel editorial. O padrão `user` é deliberadamente SEM acesso à bancada:
+   * o cadastro é aberto, então uma conta recém-criada não pode ler, editar
+   * nem publicar casos. Um admin promove a `editor` quem é da redação.
+   */
+  role: mysqlEnum("role", ["user", "editor", "admin"]).default("user").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),

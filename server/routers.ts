@@ -3,7 +3,7 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 import { createSessionToken } from "./_core/auth";
 import { extractClaimFromImage, extractClaimFromUrl } from "./_core/intake";
-import { invokeLLM, listLLMModels } from "./_core/llm";
+import { invokeLLM, isAnthropicConfigured, listLLMModels } from "./_core/llm";
 import { emailOpenId, hashPassword, normalizeEmail, verifyPassword } from "./_core/password";
 import { BCB_SGS_CATALOG, fetchBcbSgsSeries, suggestBcbSeries } from "./_core/officialSources";
 import { isGoogleFactCheckConfigured, ratingToRelation, searchGoogleFactChecks } from "./_core/googleFactCheck";
@@ -28,14 +28,18 @@ import {
   listPublishedCases,
   listResearchTasks,
   listSourceConnections,
+  listUsers,
+  setUserRole,
   setSourceConnectionStatus,
   saveAnalysis,
   updateCaseWorkflow,
   upsertUser,
 } from "./db";
-import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
+import { adminProcedure, editorProcedure, publicProcedure, router } from "./_core/trpc";
 import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
+import { isPublicHttpsUrl, safeFetch, UnsafeUrlError } from "./_core/safeFetch";
+import { checkRateLimit, RATE_LIMITS } from "./_core/rateLimit";
 
 const registerInputSchema = z.object({
   email: z.string().trim().toLowerCase().email(),
@@ -169,14 +173,48 @@ export const casePipelineInputSchema = z.object({
   runBcb: z.boolean().default(true),
 });
 
-export function assertPublishable(input: { workflowStatus: z.infer<typeof workflowSchema>; methodology?: string | null; editorialNote?: string | null }, hasApprovedReview: boolean) {
+/**
+ * Uma revisão só sustenta publicação se foi feita por outra pessoa que não a
+ * autora do caso. Sem essa regra, "exige revisão humana aprovada" seria
+ * satisfeito pelo próprio autor aprovando o próprio caso — o que esvazia a
+ * garantia editorial que o produto anuncia ao leitor.
+ */
+export function hasIndependentApproval(
+  caseRecord: { createdBy: number | null },
+  reviews: Array<{ decision: string; reviewerId: number }>,
+) {
+  const approved = reviews.filter(review => review.decision === "aprovar");
+  // Autoria desconhecida (linha legada): não há autor a quem a revisão possa
+  // pertencer, então o risco de auto-aprovação não se aplica e basta a aprovação.
+  if (caseRecord.createdBy == null) return approved.length > 0;
+  return approved.some(review => review.reviewerId !== caseRecord.createdBy);
+}
+
+export function assertPublishable(input: { workflowStatus: z.infer<typeof workflowSchema>; methodology?: string | null; editorialNote?: string | null }, hasApprovedReview: boolean, selfApprovedOnly = false) {
   if (input.workflowStatus !== "publicado") return;
   if (!input.methodology?.trim() || !input.editorialNote?.trim()) {
     throw new TRPCError({ code: "BAD_REQUEST", message: "Preencha a metodologia e a justificativa pública antes de publicar este caso." });
   }
   if (!hasApprovedReview) {
-    throw new TRPCError({ code: "BAD_REQUEST", message: "Registre uma revisão humana aprovada antes de publicar este caso." });
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: selfApprovedOnly
+        ? "A única revisão aprovada deste caso é de quem o criou. A publicação exige revisão de outra pessoa da redação."
+        : "Registre uma revisão humana aprovada antes de publicar este caso.",
+    });
   }
+}
+
+/**
+ * Origem aproximada da requisição, para limitar login e cadastro.
+ * Atrás do proxy do Railway o IP real vem em x-forwarded-for; usamos o primeiro
+ * salto e caímos para o socket quando o cabeçalho não existe.
+ */
+function clientIdentity(req: { headers: Record<string, unknown>; ip?: string; socket?: { remoteAddress?: string } }) {
+  const forwarded = req.headers["x-forwarded-for"];
+  const raw = Array.isArray(forwarded) ? forwarded[0] : typeof forwarded === "string" ? forwarded : "";
+  const first = raw.split(",")[0]?.trim();
+  return first || req.ip || req.socket?.remoteAddress || "desconhecido";
 }
 
 function cleanOptional(value?: string) {
@@ -201,11 +239,8 @@ export function canonicalizeUrl(value: string) {
   }
 }
 
-function isPublicHttps(value: string) {
-  const url = new URL(value);
-  const hostname = url.hostname.toLowerCase();
-  return url.protocol === "https:" && hostname !== "localhost" && hostname !== "::1" && !hostname.startsWith("127.") && !hostname.startsWith("10.") && !hostname.startsWith("192.168.") && !/^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname) && !hostname.startsWith("169.254.");
-}
+// Guarda única, compartilhada com o intake e o safeFetch.
+const isPublicHttps = isPublicHttpsUrl;
 
 function decodeXml(value: string) {
   return value.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'");
@@ -231,7 +266,7 @@ export function parseHistoricalRss(raw: string, maxRecords: number, domains: str
 async function resolvePublicUrl(value: string) {
   try {
     if (!isPublicHttps(value)) return value;
-    const response = await fetch(value, { method: "GET", redirect: "follow", signal: AbortSignal.timeout(6000), headers: { accept: "text/html,application/xhtml+xml" } });
+    const response = await safeFetch(value, { timeoutMs: 6000, headers: { accept: "text/html,application/xhtml+xml" } });
     await response.body?.cancel();
     return isPublicHttps(response.url) ? canonicalizeUrl(response.url) : canonicalizeUrl(value);
   } catch {
@@ -331,12 +366,58 @@ function readLLMText(content: unknown) {
 }
 
 export const appRouter = router({
+  /** Gestão de acesso à redação. Só admin — o bootstrap é via OWNER_OPEN_ID. */
+  admin: router({
+    users: adminProcedure.query(() => listUsers()),
+    setRole: adminProcedure
+      .input(z.object({ userId: z.number().int().positive(), role: z.enum(["user", "editor", "admin"]) }))
+      .mutation(async ({ input, ctx }) => {
+        if (input.userId === ctx.user.id && input.role !== "admin") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Você não pode rebaixar a própria conta — outro admin precisa fazer isso, para não sobrar nenhum administrador.",
+          });
+        }
+        const updated = await setUserRole(input.userId, input.role);
+        if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Usuário não encontrado" });
+        return updated;
+      }),
+  }),
   system: router({
     health: publicProcedure.query(() => ({ ok: true })),
+    /**
+     * Prontidão das integrações — ponto único de verdade para o painel avisar
+     * o que está configurado antes de o editor começar, em vez de a falta de
+     * uma chave só aparecer como erro no meio do fluxo.
+     */
+    integrations: editorProcedure.query(() => [
+      {
+        key: "anthropic" as const,
+        label: "Extração e briefings (IA)",
+        ready: isAnthropicConfigured(),
+        requires: "ANTHROPIC_API_KEY",
+        enables: "Extrair alegação de link e print, briefing de revisão e laudo de fala.",
+      },
+      {
+        key: "googleFactCheck" as const,
+        label: "Checagens já publicadas",
+        ready: isGoogleFactCheckConfigured(),
+        requires: "GOOGLE_FACTCHECK_API_KEY",
+        enables: "Buscar checagens de outros veículos (ClaimReview) sobre a mesma alegação.",
+      },
+      {
+        key: "bcb" as const,
+        label: "Dados oficiais do Banco Central",
+        ready: true,
+        requires: null,
+        enables: "Consultar séries oficiais (IPCA, Selic, câmbio). API pública, sem credencial.",
+      },
+    ]),
   }),
   auth: router({
     me: publicProcedure.query(opts => (opts.ctx.user ? sanitizeUser(opts.ctx.user) : null)),
     register: publicProcedure.input(registerInputSchema).mutation(async ({ input, ctx }) => {
+      checkRateLimit(clientIdentity(ctx.req), RATE_LIMITS.register);
       const openId = emailOpenId(input.email);
       if (await getUserByOpenId(openId)) {
         throw new TRPCError({ code: "CONFLICT", message: "Já existe uma conta com este e-mail." });
@@ -358,6 +439,9 @@ export const appRouter = router({
       return sanitizeUser(user);
     }),
     login: publicProcedure.input(loginInputSchema).mutation(async ({ input, ctx }) => {
+      // Por e-mail e por origem: trava força bruta numa conta e varredura de contas.
+      checkRateLimit(emailOpenId(input.email), RATE_LIMITS.login);
+      checkRateLimit(clientIdentity(ctx.req), RATE_LIMITS.login);
       const openId = emailOpenId(input.email);
       const user = await getUserByOpenId(openId);
       if (!user?.passwordHash || !(await verifyPassword(input.password, user.passwordHash))) {
@@ -376,18 +460,20 @@ export const appRouter = router({
     }),
   }),
   intake: router({
-    extractFromUrl: protectedProcedure
+    extractFromUrl: editorProcedure
       .input(z.object({ url: z.string().url() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
+        checkRateLimit(ctx.user.id, RATE_LIMITS.intake);
         try {
           return await extractClaimFromUrl(input.url);
         } catch (error) {
           throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Não foi possível extrair a alegação deste link." });
         }
       }),
-    extractFromImage: protectedProcedure
+    extractFromImage: editorProcedure
       .input(z.object({ imageDataUrl: z.string().min(1) }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
+        checkRateLimit(ctx.user.id, RATE_LIMITS.intake);
         try {
           return await extractClaimFromImage(input.imageDataUrl);
         } catch (error) {
@@ -399,9 +485,9 @@ export const appRouter = router({
     published: publicProcedure.query(() => listPublishedCases()),
     publicBySlug: publicProcedure.input(z.object({ slug: z.string().min(1) })).query(({ input }) => getPublishedBundle(input.slug)),
     stats: publicProcedure.query(() => getCaseStats()),
-    workspace: protectedProcedure.input(z.object({ caseId: z.number().int().positive() })).query(({ input }) => getCaseBundle(input.caseId)),
-    all: protectedProcedure.query(() => listCases()),
-    create: protectedProcedure
+    workspace: editorProcedure.input(z.object({ caseId: z.number().int().positive() })).query(({ input }) => getCaseBundle(input.caseId)),
+    all: editorProcedure.query(() => listCases()),
+    create: editorProcedure
       .input(claimInputSchema)
       .mutation(async ({ input, ctx }) => {
         const base = input.claimText.toLowerCase().replace(/[^a-z0-9à-ú]+/gi, "-").replace(/(^-|-$)/g, "").slice(0, 110);
@@ -412,7 +498,7 @@ export const appRouter = router({
           createdBy: ctx.user.id,
         });
       }),
-    updateWorkflow: protectedProcedure
+    updateWorkflow: editorProcedure
       .input(z.object({
         caseId: z.number().int().positive(),
         workflowStatus: workflowSchema,
@@ -424,14 +510,15 @@ export const appRouter = router({
         if (input.workflowStatus === "publicado") {
           const bundle = await getCaseBundle(input.caseId);
           if (!bundle.caseRecord) throw new TRPCError({ code: "NOT_FOUND", message: "Caso não encontrado" });
-          const approvedReview = bundle.reviewRows.some(review => review.decision === "aprovar");
-          assertPublishable(input, approvedReview);
+          const independent = hasIndependentApproval(bundle.caseRecord, bundle.reviewRows);
+          const selfApprovedOnly = !independent && bundle.reviewRows.some(review => review.decision === "aprovar");
+          assertPublishable(input, independent, selfApprovedOnly);
         }
         return updateCaseWorkflow(input);
       }),
   }),
   evidences: router({
-    add: protectedProcedure
+    add: editorProcedure
       .input(evidenceInputSchema)
       .mutation(({ input }) => addEvidence({
         ...input,
@@ -440,29 +527,27 @@ export const appRouter = router({
       })),
   }),
   reviews: router({
-    submit: protectedProcedure
+    submit: editorProcedure
       .input(reviewInputSchema)
       .mutation(({ input, ctx }) => addReview({ ...input, reviewerId: ctx.user.id })),
   }),
   sources: router({
-    list: protectedProcedure.query(() => listSourceConnections()),
-    create: protectedProcedure.input(sourceConnectionInputSchema).mutation(({ input, ctx }) => createSourceConnection({ ...input, notes: cleanOptional(input.notes), createdBy: ctx.user.id })),
-    setStatus: protectedProcedure.input(sourceStatusInputSchema).mutation(({ input }) => setSourceConnectionStatus(input.id, input.status)),
-    forCase: protectedProcedure.input(z.object({ caseId: z.number().int().positive() })).query(({ input }) => listCaseSourceLinks(input.caseId)),
-    linkToCase: protectedProcedure.input(sourceCaseLinkInputSchema).mutation(async ({ input, ctx }) => {
+    list: editorProcedure.query(() => listSourceConnections()),
+    create: editorProcedure.input(sourceConnectionInputSchema).mutation(({ input, ctx }) => createSourceConnection({ ...input, notes: cleanOptional(input.notes), createdBy: ctx.user.id })),
+    setStatus: editorProcedure.input(sourceStatusInputSchema).mutation(({ input }) => setSourceConnectionStatus(input.id, input.status)),
+    forCase: editorProcedure.input(z.object({ caseId: z.number().int().positive() })).query(({ input }) => listCaseSourceLinks(input.caseId)),
+    linkToCase: editorProcedure.input(sourceCaseLinkInputSchema).mutation(async ({ input, ctx }) => {
       const bundle = await getCaseBundle(input.caseId);
       if (!bundle.caseRecord) throw new TRPCError({ code: "NOT_FOUND", message: "Caso não encontrado" });
       return linkSourceToCase({ ...input, createdBy: ctx.user.id });
     }),
-    ingest: protectedProcedure.input(sourceIngestInputSchema).mutation(async ({ input }) => {
+    ingest: editorProcedure.input(sourceIngestInputSchema).mutation(async ({ input }) => {
       const bundle = await getCaseBundle(input.caseId);
       if (!bundle.caseRecord) throw new TRPCError({ code: "NOT_FOUND", message: "Caso não encontrado" });
-      const url = new URL(input.endpoint);
-      const hostname = url.hostname.toLowerCase();
-      const isPrivate = url.protocol !== "https:" || hostname === "localhost" || hostname === "::1" || hostname.startsWith("127.") || hostname.startsWith("10.") || hostname.startsWith("192.168.") || /^172\\.(1[6-9]|2\\d|3[0-1])\\./.test(hostname) || hostname.startsWith("169.254.");
-      if (isPrivate) throw new TRPCError({ code: "BAD_REQUEST", message: "Apenas endpoints HTTPS públicos podem ser ingeridos." });
+      if (!isPublicHttpsUrl(input.endpoint)) throw new TRPCError({ code: "BAD_REQUEST", message: "Apenas endpoints HTTPS públicos podem ser ingeridos." });
+      const url = input.endpoint;
       try {
-        const response = await fetch(url, { method: "GET", redirect: "follow", signal: AbortSignal.timeout(10000) });
+        const response = await safeFetch(url, { timeoutMs: 10000 });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const raw = await response.text();
         const excerpt = raw.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 1200);
@@ -481,11 +566,9 @@ export const appRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "Não foi possível ingerir conteúdo deste endpoint público agora." });
       }
     }),
-    probe: protectedProcedure.input(sourceProbeInputSchema).mutation(async ({ input }) => {
-      const url = new URL(input.endpoint);
-      const hostname = url.hostname.toLowerCase();
-      const isPrivate = url.protocol !== "https:" || hostname === "localhost" || hostname === "::1" || hostname.startsWith("127.") || hostname.startsWith("10.") || hostname.startsWith("192.168.") || /^172\\.(1[6-9]|2\\d|3[0-1])\\./.test(hostname) || hostname.startsWith("169.254.");
-      if (isPrivate) throw new TRPCError({ code: "BAD_REQUEST", message: "Apenas endpoints HTTPS públicos podem ser testados." });
+    probe: editorProcedure.input(sourceProbeInputSchema).mutation(async ({ input }) => {
+      if (!isPublicHttpsUrl(input.endpoint)) throw new TRPCError({ code: "BAD_REQUEST", message: "Apenas endpoints HTTPS públicos podem ser testados." });
+      const url = input.endpoint;
       try {
         const response = await fetch(url, { method: "GET", redirect: "manual", signal: AbortSignal.timeout(8000) });
         return { ok: response.ok, status: response.status, contentType: response.headers.get("content-type") ?? "não informado", retrievedAt: new Date().toISOString() };
@@ -495,14 +578,14 @@ export const appRouter = router({
     }),
   }),
   research: router({
-    list: protectedProcedure.input(z.object({ caseId: z.number().int().positive().optional() }).optional()).query(({ input }) => listResearchTasks(input?.caseId)),
-    create: protectedProcedure.input(researchTaskInputSchema).mutation(async ({ input, ctx }) => {
+    list: editorProcedure.input(z.object({ caseId: z.number().int().positive().optional() }).optional()).query(({ input }) => listResearchTasks(input?.caseId)),
+    create: editorProcedure.input(researchTaskInputSchema).mutation(async ({ input, ctx }) => {
       const bundle = await getCaseBundle(input.caseId);
       if (!bundle.caseRecord) throw new TRPCError({ code: "NOT_FOUND", message: "Caso não encontrado" });
       return createResearchTask({ ...input, requestedBy: ctx.user.id });
     }),
-    findings: protectedProcedure.input(z.object({ caseId: z.number().int().positive() })).query(({ input }) => listHistoricalFindings(input.caseId)),
-    discover: protectedProcedure.input(historicalSearchInputSchema).mutation(async ({ input, ctx }) => {
+    findings: editorProcedure.input(z.object({ caseId: z.number().int().positive() })).query(({ input }) => listHistoricalFindings(input.caseId)),
+    discover: editorProcedure.input(historicalSearchInputSchema).mutation(async ({ input, ctx }) => {
       const bundle = await getCaseBundle(input.caseId);
       if (!bundle.caseRecord) throw new TRPCError({ code: "NOT_FOUND", message: "Caso não encontrado" });
       return runDiscovery({
@@ -512,7 +595,8 @@ export const appRouter = router({
         requestedBy: ctx.user.id,
       });
     }),
-    crossCheckOfficial: protectedProcedure.input(crossCheckOfficialInputSchema).mutation(async ({ input, ctx }) => {
+    crossCheckOfficial: editorProcedure.input(crossCheckOfficialInputSchema).mutation(async ({ input, ctx }) => {
+      checkRateLimit(ctx.user.id, RATE_LIMITS.research);
       const bundle = await getCaseBundle(input.caseId);
       if (!bundle.caseRecord) throw new TRPCError({ code: "NOT_FOUND", message: "Caso não encontrado" });
       const baseQuery = cleanOptional(input.query) ?? bundle.caseRecord.claimText.slice(0, 200);
@@ -532,16 +616,14 @@ export const appRouter = router({
         requestedBy: ctx.user.id,
       });
     }),
-    simulateReturn: protectedProcedure.input(agentSimulationInputSchema).mutation(async ({ input, ctx }) => {
+    simulateReturn: editorProcedure.input(agentSimulationInputSchema).mutation(async ({ input, ctx }) => {
       const bundle = await getCaseBundle(input.caseId);
       if (!bundle.caseRecord) throw new TRPCError({ code: "NOT_FOUND", message: "Caso não encontrado" });
       const task = await createResearchTask({ caseId: input.caseId, objective: input.objective, workerRole: "navegador", requestedBy: ctx.user.id });
-      const url = new URL(input.endpoint);
-      const hostname = url.hostname.toLowerCase();
-      const isPrivate = url.protocol !== "https:" || hostname === "localhost" || hostname === "::1" || hostname.startsWith("127.") || hostname.startsWith("10.") || hostname.startsWith("192.168.") || /^172\\.(1[6-9]|2\\d|3[0-1])\\./.test(hostname) || hostname.startsWith("169.254.");
-      if (isPrivate) throw new TRPCError({ code: "BAD_REQUEST", message: "Apenas endpoints HTTPS públicos podem ser consultados." });
+      if (!isPublicHttpsUrl(input.endpoint)) throw new TRPCError({ code: "BAD_REQUEST", message: "Apenas endpoints HTTPS públicos podem ser consultados." });
+      const url = input.endpoint;
       try {
-        const response = await fetch(url, { method: "GET", redirect: "follow", signal: AbortSignal.timeout(10000) });
+        const response = await safeFetch(url, { timeoutMs: 10000 });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const raw = await response.text();
         const excerpt = raw.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 1200);
@@ -553,7 +635,8 @@ export const appRouter = router({
       }
     }),
     /** Checagens já publicadas por veículos com ClaimReview (Google Fact Check Tools). */
-    googleFactChecks: protectedProcedure.input(googleFactCheckInputSchema).mutation(async ({ input, ctx }) => {
+    googleFactChecks: editorProcedure.input(googleFactCheckInputSchema).mutation(async ({ input, ctx }) => {
+      checkRateLimit(ctx.user.id, RATE_LIMITS.research);
       const bundle = await getCaseBundle(input.caseId);
       if (!bundle.caseRecord) throw new TRPCError({ code: "NOT_FOUND", message: "Caso não encontrado" });
       if (!isGoogleFactCheckConfigured()) {
@@ -605,7 +688,8 @@ export const appRouter = router({
      * "Rodar fluxo completo": dispara em paralelo as fontes disponíveis e devolve
      * material para leitura editorial. Nenhuma etapa decide status ou veredito.
      */
-    prepareCasePipeline: protectedProcedure.input(casePipelineInputSchema).mutation(async ({ input, ctx }) => {
+    prepareCasePipeline: editorProcedure.input(casePipelineInputSchema).mutation(async ({ input, ctx }) => {
+      checkRateLimit(ctx.user.id, RATE_LIMITS.research);
       const bundle = await getCaseBundle(input.caseId);
       if (!bundle.caseRecord) throw new TRPCError({ code: "NOT_FOUND", message: "Caso não encontrado" });
       const claimText = bundle.caseRecord.claimText;
@@ -697,7 +781,7 @@ export const appRouter = router({
           "Material preparado para leitura editorial. Abra cada item, confira a fonte primária e registre como evidência. O status e o veredito continuam sendo decisão humana.",
       };
     }),
-    recordFinding: protectedProcedure.input(evidenceInputSchema.extend({ taskId: z.number().int().positive().optional(), findingId: z.number().int().positive().optional() })).mutation(async ({ input }) => {
+    recordFinding: editorProcedure.input(evidenceInputSchema.extend({ taskId: z.number().int().positive().optional(), findingId: z.number().int().positive().optional() })).mutation(async ({ input }) => {
       const bundle = await getCaseBundle(input.caseId);
       if (!bundle.caseRecord) throw new TRPCError({ code: "NOT_FOUND", message: "Caso não encontrado" });
       const evidence = await addEvidence({
@@ -716,7 +800,7 @@ export const appRouter = router({
   }),
   /** Dados oficiais consultáveis sem credencial (BCB SGS). */
   official: router({
-    catalog: protectedProcedure.query(() => ({
+    catalog: editorProcedure.query(() => ({
       bcbSgs: Object.entries(BCB_SGS_CATALOG).map(([key, meta]) => ({
         key,
         id: meta.id,
@@ -724,12 +808,11 @@ export const appRouter = router({
         unit: meta.unit,
         keywords: meta.keywords,
       })),
-      factCheckConfigured: isGoogleFactCheckConfigured(),
     })),
-    suggest: protectedProcedure
+    suggest: editorProcedure
       .input(z.object({ claimText: z.string().trim().min(3).max(5000) }))
       .query(({ input }) => ({ suggestions: suggestBcbSeries(input.claimText) })),
-    bcbSeries: protectedProcedure
+    bcbSeries: editorProcedure
       .input(z.object({
         seriesId: z.number().int().positive(),
         monthsBack: z.number().int().min(1).max(60).default(12),
@@ -743,7 +826,7 @@ export const appRouter = router({
         }
       }),
     /** Deriva a série da própria alegação e registra evidência candidata. */
-    crossCheckBcb: protectedProcedure.input(bcbCrossCheckInputSchema).mutation(async ({ input, ctx }) => {
+    crossCheckBcb: editorProcedure.input(bcbCrossCheckInputSchema).mutation(async ({ input, ctx }) => {
       const bundle = await getCaseBundle(input.caseId);
       if (!bundle.caseRecord) throw new TRPCError({ code: "NOT_FOUND", message: "Caso não encontrado" });
       const suggestions = suggestBcbSeries(bundle.caseRecord.claimText);
@@ -799,10 +882,10 @@ export const appRouter = router({
    * Ancora o instante da fala e descreve o que a versão viral cortou ou omitiu.
    */
   moments: router({
-    list: protectedProcedure
+    list: editorProcedure
       .input(z.object({ caseId: z.number().int().positive() }))
       .query(({ input }) => listSourceMoments(input.caseId)),
-    register: protectedProcedure.input(sourceMomentInputSchema).mutation(async ({ input, ctx }) => {
+    register: editorProcedure.input(sourceMomentInputSchema).mutation(async ({ input, ctx }) => {
       const bundle = await getCaseBundle(input.caseId);
       if (!bundle.caseRecord) throw new TRPCError({ code: "NOT_FOUND", message: "Caso não encontrado" });
       if (input.timestampStartSec != null && input.timestampEndSec != null && input.timestampEndSec < input.timestampStartSec) {
@@ -883,9 +966,10 @@ export const appRouter = router({
     }),
   }),
   analysis: router({
-    generate: protectedProcedure
+    generate: editorProcedure
       .input(z.object({ caseId: z.number().int().positive() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
+        checkRateLimit(ctx.user.id, RATE_LIMITS.analysis);
         const bundle = await getCaseBundle(input.caseId);
         if (!bundle.caseRecord) throw new TRPCError({ code: "NOT_FOUND", message: "Caso não encontrado" });
         const { data } = await listLLMModels();
@@ -937,13 +1021,14 @@ export const appRouter = router({
      * Laudo "fulano disse isso?" — avalia atribuição da fala e uso fora de contexto.
      * Produz material para o editor; não decide o veredito público.
      */
-    quoteLaudo: protectedProcedure
+    quoteLaudo: editorProcedure
       .input(z.object({
         caseId: z.number().int().positive(),
         attributedPerson: z.string().trim().min(2).max(200).optional(),
         allegedQuote: z.string().trim().min(8).max(5000).optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
+        checkRateLimit(ctx.user.id, RATE_LIMITS.analysis);
         const bundle = await getCaseBundle(input.caseId);
         if (!bundle.caseRecord) throw new TRPCError({ code: "NOT_FOUND", message: "Caso não encontrado" });
         const { data } = await listLLMModels();
