@@ -43,6 +43,7 @@ export default function Home() {
     onError: error => toast.error(error.message || "Não foi possível criar o caso"),
   });
   const [showCreate, setShowCreate] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [claim, setClaim] = useState("");
   const [claimUrl, setClaimUrl] = useState("");
   const [intakeTab, setIntakeTab] = useState<IntakeTab>("texto");
@@ -129,9 +130,16 @@ export default function Home() {
           <div className="header-actions">
             <Link href="/painel" className="header-link"><Layers3 size={15} /> Painel editorial</Link>
             <button className="button button-small button-ghost-light" onClick={openCreate}><Plus size={15} /> Nova alegação</button>
-            <button className="mobile-menu" aria-label="Abrir menu"><Menu size={20} /></button>
+            <button className="mobile-menu" aria-label={menuOpen ? "Fechar menu" : "Abrir menu"} aria-expanded={menuOpen} aria-controls="menu-mobile" onClick={() => setMenuOpen(open => !open)}>{menuOpen ? <X size={20} /> : <Menu size={20} />}</button>
           </div>
         </div>
+        {menuOpen && <nav id="menu-mobile" className="mobile-nav" aria-label="Navegação">
+          <a href="#como-funciona" onClick={() => setMenuOpen(false)}>Como funciona</a>
+          <a href="#acervo" onClick={() => setMenuOpen(false)}>Acervo público</a>
+          <a href="#metodo" onClick={() => setMenuOpen(false)}>Método</a>
+          <Link href="/painel" onClick={() => setMenuOpen(false)}><Layers3 size={15} /> Painel editorial</Link>
+          <button className="button button-small button-ghost-light" onClick={() => { setMenuOpen(false); openCreate(); }}><Plus size={15} /> Nova alegação</button>
+        </nav>}
       </header>
 
       <main>
