@@ -16,5 +16,4 @@ CREATE TABLE `historical_findings` (
 );
 --> statement-breakpoint
 CREATE INDEX `historical_findings_case_idx` ON `historical_findings` (`caseId`);--> statement-breakpoint
-CREATE INDEX `historical_findings_task_idx` ON `historical_findings` (`taskId`);--> statement-breakpoint
-CREATE INDEX `historical_findings_final_url_idx` ON `historical_findings` (`finalUrl`);
+CREATE INDEX `historical_findings_task_idx` ON `historical_findings` (`taskId`);

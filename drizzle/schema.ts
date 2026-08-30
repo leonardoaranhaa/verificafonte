@@ -181,7 +181,6 @@ export const historicalFindings = mysqlTable(
     caseIdx: index("historical_findings_case_idx").on(table.caseId),
     taskIdx: index("historical_findings_task_idx").on(table.taskId),
     searchKeyIdx: index("historical_findings_search_key_idx").on(table.searchKey),
-    finalUrlIdx: index("historical_findings_final_url_idx").on(table.finalUrl),
   }),
 );
 
