@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { appRouter } from "./routers";
-import { assertPublishable, canonicalizeUrl, claimInputSchema, evidenceInputSchema, historicalSearchInputSchema, parseHistoricalRss, researchTaskInputSchema, reviewInputSchema, sourceConnectionInputSchema } from "./routers";
+import { assertPublishable, canonicalizeUrl, claimInputSchema, crossCheckOfficialInputSchema, evidenceInputSchema, historicalSearchInputSchema, OFFICIAL_SEARCH_SITES, parseHistoricalRss, researchTaskInputSchema, reviewInputSchema, sourceConnectionInputSchema } from "./routers";
 import type { TrpcContext } from "./_core/context";
 
 const publicContext: TrpcContext = {
@@ -60,5 +60,14 @@ describe("fact-check public contract", () => {
     expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({ title: "IPCA e preços", publisher: "Valor Econômico", discoverySource: "Google Notícias RSS", needsEditorialOpen: true, accessedAt: "2026-08-29T10:00:00.000Z" });
     expect(results[0]?.discoveryUrl).toContain("news.google.com");
+  });
+
+  it("cross-checks against a curated list of official .gov.br/.jus.br/.leg.br sources", () => {
+    expect(OFFICIAL_SEARCH_SITES).toContain("gov.br");
+    expect(OFFICIAL_SEARCH_SITES).toContain("ibge.gov.br");
+    expect(OFFICIAL_SEARCH_SITES.every(site => /(^|\.)(gov\.br|jus\.br|leg\.br|ebc\.com\.br)$/.test(site))).toBe(true);
+    expect(crossCheckOfficialInputSchema.safeParse({ caseId: 1 }).success).toBe(true);
+    expect(crossCheckOfficialInputSchema.safeParse({ caseId: 1, query: "IPCA julho" }).success).toBe(true);
+    expect(crossCheckOfficialInputSchema.safeParse({ caseId: 0 }).success).toBe(false);
   });
 });

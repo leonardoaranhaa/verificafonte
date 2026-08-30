@@ -3,7 +3,7 @@ CREATE TABLE `historical_findings` (
 	`caseId` int NOT NULL,
 	`taskId` int,
 	`discoveryUrl` text NOT NULL,
-	`finalUrl` text NOT NULL,
+	`finalUrl` varchar(2048) NOT NULL,
 	`title` text NOT NULL,
 	`publisher` varchar(240) NOT NULL,
 	`publishedAt` timestamp,

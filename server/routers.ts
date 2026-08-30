@@ -94,6 +94,26 @@ export const historicalSearchInputSchema = z.object({
   maxRecords: z.number().int().min(1).max(25).default(10),
 });
 
+// Domínios .gov.br / .jus.br / .leg.br mais relevantes para checagem de fatos no Brasil.
+export const OFFICIAL_SEARCH_SITES = [
+  "gov.br",
+  "ibge.gov.br",
+  "bcb.gov.br",
+  "planalto.gov.br",
+  "saude.gov.br",
+  "anvisa.gov.br",
+  "tse.jus.br",
+  "stf.jus.br",
+  "camara.leg.br",
+  "senado.leg.br",
+  "agenciabrasil.ebc.com.br",
+];
+
+export const crossCheckOfficialInputSchema = z.object({
+  caseId: z.number().int().positive(),
+  query: z.string().trim().max(200).optional(),
+});
+
 export const reviewInputSchema = z.object({
   caseId: z.number().int().positive(),
   decision: z.enum(["aprovar", "solicitar_ajustes", "rejeitar"]),
@@ -168,6 +188,50 @@ async function resolvePublicUrl(value: string) {
   } catch {
     return canonicalizeUrl(value);
   }
+}
+
+async function runDiscovery(input: {
+  caseId: number;
+  query: string;
+  searchKeySeed: string;
+  startDate: string;
+  endDate: string;
+  language: string;
+  domains: string[];
+  maxRecords: number;
+  objective: string;
+  requestedBy: number;
+}) {
+  const start = toGdeltDate(input.startDate);
+  const end = toGdeltDate(input.endDate, true);
+  if (start > end) throw new TRPCError({ code: "BAD_REQUEST", message: "A data inicial deve ser anterior à data final." });
+  const maxWindowMs = 366 * 24 * 60 * 60 * 1000;
+  if (end.getTime() - start.getTime() > maxWindowMs) throw new TRPCError({ code: "BAD_REQUEST", message: "A janela histórica máxima nesta busca é de 366 dias." });
+  const task = await createResearchTask({ caseId: input.caseId, objective: input.objective, workerRole: "navegador", requestedBy: input.requestedBy });
+  const apiUrl = new URL("https://news.google.com/rss/search");
+  const periodQuery = `${input.query} after:${input.startDate} before:${input.endDate}`;
+  apiUrl.searchParams.set("q", periodQuery);
+  apiUrl.searchParams.set("hl", input.language === "por" ? "pt-BR" : input.language);
+  apiUrl.searchParams.set("gl", "BR");
+  apiUrl.searchParams.set("ceid", "BR:pt-419");
+  try {
+    const response = await fetch(apiUrl, { signal: AbortSignal.timeout(12000), headers: { accept: "application/rss+xml, application/xml, text/xml" } });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const raw = await response.text();
+    const accessedAt = new Date().toISOString();
+    const parsed = parseHistoricalRss(raw, input.maxRecords, input.domains, input.language, accessedAt);
+    const results = await Promise.all(parsed.map(async item => ({ ...item, url: await resolvePublicUrl(item.url) })));
+    const searchKey = `${input.caseId}:${input.searchKeySeed.trim().toLowerCase()}:${input.startDate}:${input.endDate}`.slice(0, 255);
+    const persisted = await createHistoricalFindings(results.map(item => ({ caseId: input.caseId, taskId: task?.id, searchKey, queryText: input.query.slice(0, 240), discoveryUrl: item.discoveryUrl, finalUrl: item.url, title: item.title, publisher: item.publisher, publishedAt: item.publishedAt ? new Date(item.publishedAt) : undefined, accessedAt: new Date(item.accessedAt), needsEditorialOpen: "sim" as const, createdBy: input.requestedBy })));
+    const resultsWithIds = results.map((item, index) => ({ ...item, findingId: persisted[index]?.id ?? null }));
+    return { task, query: input.query, startDate: input.startDate, endDate: input.endDate, provider: "Google Notícias RSS", results: resultsWithIds, persisted };
+  } catch {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "A busca não conseguiu consultar o índice público agora." });
+  }
+}
+
+function toIsoDate(value: Date) {
+  return value.toISOString().slice(0, 10);
 }
 
 function readLLMText(content: unknown) {
@@ -353,32 +417,32 @@ export const appRouter = router({
     discover: protectedProcedure.input(historicalSearchInputSchema).mutation(async ({ input, ctx }) => {
       const bundle = await getCaseBundle(input.caseId);
       if (!bundle.caseRecord) throw new TRPCError({ code: "NOT_FOUND", message: "Caso não encontrado" });
-      const start = toGdeltDate(input.startDate);
-      const end = toGdeltDate(input.endDate, true);
-      if (start > end) throw new TRPCError({ code: "BAD_REQUEST", message: "A data inicial deve ser anterior à data final." });
-      const maxWindowMs = 366 * 24 * 60 * 60 * 1000;
-      if (end.getTime() - start.getTime() > maxWindowMs) throw new TRPCError({ code: "BAD_REQUEST", message: "A janela histórica máxima nesta busca é de 366 dias." });
-      const task = await createResearchTask({ caseId: input.caseId, objective: `Descobrir cobertura histórica para: ${input.query} (${input.startDate} a ${input.endDate})`, workerRole: "navegador", requestedBy: ctx.user.id });
-      const apiUrl = new URL("https://news.google.com/rss/search");
-      const periodQuery = `${input.query} after:${input.startDate} before:${input.endDate}`;
-      apiUrl.searchParams.set("q", periodQuery);
-      apiUrl.searchParams.set("hl", input.language === "por" ? "pt-BR" : input.language);
-      apiUrl.searchParams.set("gl", "BR");
-      apiUrl.searchParams.set("ceid", "BR:pt-419");
-      try {
-        const response = await fetch(apiUrl, { signal: AbortSignal.timeout(12000), headers: { accept: "application/rss+xml, application/xml, text/xml" } });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const raw = await response.text();
-        const accessedAt = new Date().toISOString();
-        const parsed = parseHistoricalRss(raw, input.maxRecords, input.domains, input.language, accessedAt);
-        const results = await Promise.all(parsed.map(async item => ({ ...item, url: await resolvePublicUrl(item.url) })));
-        const searchKey = `${input.caseId}:${input.query.trim().toLowerCase()}:${input.startDate}:${input.endDate}`;
-        const persisted = await createHistoricalFindings(results.map(item => ({ caseId: input.caseId, taskId: task?.id, searchKey, queryText: input.query, discoveryUrl: item.discoveryUrl, finalUrl: item.url, title: item.title, publisher: item.publisher, publishedAt: item.publishedAt ? new Date(item.publishedAt) : undefined, accessedAt: new Date(item.accessedAt), needsEditorialOpen: "sim" as const, createdBy: ctx.user.id })));
-        const resultsWithIds = results.map((item, index) => ({ ...item, findingId: persisted[index]?.id ?? null }));
-        return { task, query: input.query, startDate: input.startDate, endDate: input.endDate, provider: "Google Notícias RSS", results: resultsWithIds, persisted };
-      } catch {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "A busca histórica não conseguiu consultar o índice público agora." });
-      }
+      return runDiscovery({
+        ...input,
+        searchKeySeed: input.query,
+        objective: `Descobrir cobertura histórica para: ${input.query} (${input.startDate} a ${input.endDate})`,
+        requestedBy: ctx.user.id,
+      });
+    }),
+    crossCheckOfficial: protectedProcedure.input(crossCheckOfficialInputSchema).mutation(async ({ input, ctx }) => {
+      const bundle = await getCaseBundle(input.caseId);
+      if (!bundle.caseRecord) throw new TRPCError({ code: "NOT_FOUND", message: "Caso não encontrado" });
+      const baseQuery = cleanOptional(input.query) ?? bundle.caseRecord.claimText.slice(0, 200);
+      const siteFilter = OFFICIAL_SEARCH_SITES.map(site => `site:${site}`).join(" OR ");
+      const end = new Date();
+      const start = new Date(end.getTime() - 180 * 24 * 60 * 60 * 1000);
+      return runDiscovery({
+        caseId: input.caseId,
+        query: `${baseQuery} (${siteFilter})`,
+        searchKeySeed: `oficial:${baseQuery}`,
+        startDate: toIsoDate(start),
+        endDate: toIsoDate(end),
+        language: "por",
+        domains: [],
+        maxRecords: 10,
+        objective: `Cruzar a alegação com fontes oficiais (.gov.br/.jus.br/.leg.br): ${baseQuery}`,
+        requestedBy: ctx.user.id,
+      });
     }),
     simulateReturn: protectedProcedure.input(agentSimulationInputSchema).mutation(async ({ input, ctx }) => {
       const bundle = await getCaseBundle(input.caseId);
