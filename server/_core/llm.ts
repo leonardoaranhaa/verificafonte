@@ -78,8 +78,13 @@ export type ResponseFormat =
 
 const ensureArray = (value: MessageContent | MessageContent[]): MessageContent[] => (Array.isArray(value) ? value : [value]);
 
+/** A chave da Anthropic está presente? Usado para sinalizar prontidão antes do fluxo. */
+export function isAnthropicConfigured(): boolean {
+  return Boolean(ENV.anthropicApiKey);
+}
+
 function assertApiKey() {
-  if (!ENV.anthropicApiKey) {
+  if (!isAnthropicConfigured()) {
     throw new Error("ANTHROPIC_API_KEY is not configured");
   }
 }

@@ -3,7 +3,7 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 import { createSessionToken } from "./_core/auth";
 import { extractClaimFromImage, extractClaimFromUrl } from "./_core/intake";
-import { invokeLLM, listLLMModels } from "./_core/llm";
+import { invokeLLM, isAnthropicConfigured, listLLMModels } from "./_core/llm";
 import { emailOpenId, hashPassword, normalizeEmail, verifyPassword } from "./_core/password";
 import { BCB_SGS_CATALOG, fetchBcbSgsSeries, suggestBcbSeries } from "./_core/officialSources";
 import { isGoogleFactCheckConfigured, ratingToRelation, searchGoogleFactChecks } from "./_core/googleFactCheck";
@@ -333,6 +333,34 @@ function readLLMText(content: unknown) {
 export const appRouter = router({
   system: router({
     health: publicProcedure.query(() => ({ ok: true })),
+    /**
+     * Prontidão das integrações — ponto único de verdade para o painel avisar
+     * o que está configurado antes de o editor começar, em vez de a falta de
+     * uma chave só aparecer como erro no meio do fluxo.
+     */
+    integrations: protectedProcedure.query(() => [
+      {
+        key: "anthropic" as const,
+        label: "Extração e briefings (IA)",
+        ready: isAnthropicConfigured(),
+        requires: "ANTHROPIC_API_KEY",
+        enables: "Extrair alegação de link e print, briefing de revisão e laudo de fala.",
+      },
+      {
+        key: "googleFactCheck" as const,
+        label: "Checagens já publicadas",
+        ready: isGoogleFactCheckConfigured(),
+        requires: "GOOGLE_FACTCHECK_API_KEY",
+        enables: "Buscar checagens de outros veículos (ClaimReview) sobre a mesma alegação.",
+      },
+      {
+        key: "bcb" as const,
+        label: "Dados oficiais do Banco Central",
+        ready: true,
+        requires: null,
+        enables: "Consultar séries oficiais (IPCA, Selic, câmbio). API pública, sem credencial.",
+      },
+    ]),
   }),
   auth: router({
     me: publicProcedure.query(opts => (opts.ctx.user ? sanitizeUser(opts.ctx.user) : null)),
@@ -724,7 +752,6 @@ export const appRouter = router({
         unit: meta.unit,
         keywords: meta.keywords,
       })),
-      factCheckConfigured: isGoogleFactCheckConfigured(),
     })),
     suggest: protectedProcedure
       .input(z.object({ claimText: z.string().trim().min(3).max(5000) }))

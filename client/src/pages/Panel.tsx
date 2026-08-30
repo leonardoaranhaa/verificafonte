@@ -57,6 +57,7 @@ export default function Panel() {
     </aside>
     <main className="panel-main">
       <div className="panel-topbar"><div className="mobile-panel-menu"><Menu size={18} /></div><div><span className="panel-kicker">ESPAÇO DE TRABALHO</span><h1>{activeTab === "workspace" ? "Casos de verificação" : activeTab === "review" ? "Revisão editorial" : "Orquestração"}</h1></div><button className="button button-accent button-small" onClick={() => setLocation("/?novo=1")}><Plus size={15} /> Nova alegação</button></div>
+      <IntegrationsStrip />
       {activeTab === "orchestration" ? <Orchestration /> : activeTab === "review" ? <ReviewQueue cases={cases ?? []} onOpen={id => setLocation(`/painel?caseId=${id}`)} /> : <div className="workspace-layout">
         <section className="case-list-pane"><div className="pane-title"><div><span className="panel-kicker">SEUS CASOS</span><h2>Fila de verificação</h2></div><span className="case-total">{cases?.length ?? 0}</span></div><div className="case-list">{casesLoading ? <div className="list-placeholder">Buscando casos…</div> : cases?.length ? cases.map(item => <button className={`case-list-item ${item.id === caseId ? "selected" : ""}`} key={item.id} onClick={() => setLocation(`/painel?caseId=${item.id}`)}><div className="case-list-meta"><span className={`status-dot ${statusTone[item.status]}`}></span><span>{workflowLabels[item.workflowStatus]}</span><span>·</span><span>{formatDate(item.updatedAt)}</span></div><strong>{item.claimText}</strong><ChevronRight size={16} /></button>) : <div className="list-empty"><div className="empty-icon"><FilePlus2 size={17} /></div><p>Seus casos aparecem aqui.</p><button className="button button-dark button-small" onClick={() => setLocation("/")}>Criar primeiro caso</button></div>}</div></section>
         <section className="case-workspace">{!caseId ? <WorkspaceWelcome /> : bundleLoading ? <div className="workspace-empty"><div className="loading-orbit"></div><p>Carregando caso…</p></div> : selectedCase ? <><div className="workspace-heading"><div><div className="breadcrumb"><span>Casos</span><ChevronRight size={13} /><span>{selectedCase.workflowStatus === "publicado" ? "Público" : "Em trabalho"}</span></div><h2>{selectedCase.claimText}</h2>{selectedCase.claimUrl && <a href={selectedCase.claimUrl} target="_blank" rel="noreferrer" className="origin-link"><Link2 size={14} /> Ver publicação original <ArrowUpRight size={13} /></a>}</div><span className={`status-pill ${statusTone[selectedCase.status]}`}>{statusLabels[selectedCase.status]}</span></div><div className="case-subnav"><button className="subnav-active">Visão geral</button><span>Atualizado em {formatDate(selectedCase.updatedAt)}</span><span className="workflow-badge">{workflowLabels[selectedCase.workflowStatus]}</span></div><div className="workspace-grid"><div className="workspace-primary"><EvidencePanel evidence={bundle.evidenceRows} onAdd={() => setShowEvidenceForm(true)} sourceMix={sourceMix} /><MomentsPanel caseId={caseId} moments={bundle.momentRows} onAdd={() => setShowMomentForm(true)} /><AnalysisPanel analysis={lastAnalysis} isPending={generateAnalysis.isPending} disabled={!evidenceCount} onGenerate={() => generateAnalysis.mutate({ caseId })} /></div><aside className="workspace-aside"><EditorialPanel selectedCase={selectedCase} reviews={bundle.reviewRows} onUpdate={(payload) => updateWorkflow.mutate({ caseId, ...payload })} onReview={() => setShowReviewForm(true)} /><AgentPanel caseId={caseId} /></aside></div></> : <div className="workspace-empty"><AlertCircle size={20} /><p>Não foi possível localizar este caso.</p></div>}</section>
@@ -65,6 +66,24 @@ export default function Panel() {
     {showEvidenceForm && <EvidenceForm onClose={() => setShowEvidenceForm(false)} isPending={addEvidence.isPending} onSubmit={values => addEvidence.mutate({ caseId, ...values })} />}
     {showReviewForm && <ReviewForm onClose={() => setShowReviewForm(false)} isPending={submitReview.isPending} onSubmit={values => submitReview.mutate({ caseId, ...values })} />}
     {showMomentForm && <MomentForm caseId={caseId} originals={(bundle?.momentRows ?? []).filter(moment => moment.role === "original")} onClose={() => setShowMomentForm(false)} />}
+  </div>;
+}
+
+/**
+ * Mostra o que está pronto antes de o editor começar. Sem isso, a falta de uma
+ * chave só aparecia como erro no meio do fluxo — e podia passar por falha de rede.
+ */
+function IntegrationsStrip() {
+  const { data } = trpc.system.integrations.useQuery();
+  if (!data) return null;
+  const missing = data.filter(item => !item.ready);
+  if (!missing.length) return null;
+  return <div className="integrations-strip">
+    <AlertCircle size={14} />
+    <div>
+      <strong>{missing.length === 1 ? "Uma integração não está configurada" : `${missing.length} integrações não estão configuradas`}</strong>
+      {missing.map(item => <span key={item.key}><b>{item.label}</b> — {item.enables} {item.requires && <code>{item.requires}</code>}</span>)}
+    </div>
   </div>;
 }
 

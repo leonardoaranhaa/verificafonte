@@ -4,7 +4,7 @@ export const ENV = {
   databaseUrl: process.env.DATABASE_URL ?? "",
   ownerOpenId: process.env.OWNER_OPEN_ID ?? "",
   isProduction: process.env.NODE_ENV === "production",
-  anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? "",
+  anthropicApiKey: (process.env.ANTHROPIC_API_KEY ?? "").trim(),
   anthropicModel: process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-5-20250929",
   appUrl: process.env.APP_URL ?? "",
   googleClientId: process.env.GOOGLE_CLIENT_ID ?? "",
