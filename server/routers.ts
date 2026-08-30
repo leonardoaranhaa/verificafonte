@@ -234,6 +234,11 @@ function toIsoDate(value: Date) {
   return value.toISOString().slice(0, 10);
 }
 
+function sanitizeUser<T extends { passwordHash?: string | null }>(user: T) {
+  const { passwordHash: _passwordHash, ...safeUser } = user;
+  return safeUser;
+}
+
 function readLLMText(content: unknown) {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
@@ -247,7 +252,7 @@ export const appRouter = router({
     health: publicProcedure.query(() => ({ ok: true })),
   }),
   auth: router({
-    me: publicProcedure.query(opts => opts.ctx.user),
+    me: publicProcedure.query(opts => (opts.ctx.user ? sanitizeUser(opts.ctx.user) : null)),
     register: publicProcedure.input(registerInputSchema).mutation(async ({ input, ctx }) => {
       const openId = emailOpenId(input.email);
       if (await getUserByOpenId(openId)) {
@@ -267,7 +272,7 @@ export const appRouter = router({
       const token = await createSessionToken({ openId: user.openId, name: user.name ?? "" });
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.cookie(COOKIE_NAME, token, { ...cookieOptions, maxAge: ONE_YEAR_MS });
-      return user;
+      return sanitizeUser(user);
     }),
     login: publicProcedure.input(loginInputSchema).mutation(async ({ input, ctx }) => {
       const openId = emailOpenId(input.email);
@@ -279,7 +284,7 @@ export const appRouter = router({
       const token = await createSessionToken({ openId: user.openId, name: user.name ?? "" });
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.cookie(COOKIE_NAME, token, { ...cookieOptions, maxAge: ONE_YEAR_MS });
-      return user;
+      return sanitizeUser(user);
     }),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
