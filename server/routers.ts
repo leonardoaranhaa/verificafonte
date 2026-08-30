@@ -5,12 +5,16 @@ import { createSessionToken } from "./_core/auth";
 import { extractClaimFromImage, extractClaimFromUrl } from "./_core/intake";
 import { invokeLLM, listLLMModels } from "./_core/llm";
 import { emailOpenId, hashPassword, normalizeEmail, verifyPassword } from "./_core/password";
+import { BCB_SGS_CATALOG, fetchBcbSgsSeries, suggestBcbSeries } from "./_core/officialSources";
+import { isGoogleFactCheckConfigured, ratingToRelation, searchGoogleFactChecks } from "./_core/googleFactCheck";
 import {
   addEvidence,
   addReview,
   createCase,
   createResearchTask,
   createHistoricalFindings,
+  createSourceMoment,
+  listSourceMoments,
   getUserByOpenId,
   listHistoricalFindings,
   markHistoricalFindingEvidence,
@@ -118,6 +122,51 @@ export const reviewInputSchema = z.object({
   caseId: z.number().int().positive(),
   decision: z.enum(["aprovar", "solicitar_ajustes", "rejeitar"]),
   note: z.string().trim().min(10).max(10000),
+});
+
+export const momentRoleSchema = z.enum(["original", "viral_distorcido", "contextual"]);
+export const momentMediaKindSchema = z.enum(["video", "audio", "post", "documento", "outro"]);
+
+/** Indexação de momento: prova original, versão viral/distorcida ou contexto. */
+export const sourceMomentInputSchema = z.object({
+  caseId: z.number().int().positive(),
+  role: momentRoleSchema.default("original"),
+  mediaKind: momentMediaKindSchema.default("video"),
+  title: z.string().trim().min(4).max(500),
+  url: z.string().url(),
+  sourceName: z.string().trim().min(2).max(240),
+  /** Instante da fala/ato no vídeo ou áudio (segundos) */
+  timestampStartSec: z.number().int().min(0).max(86400).optional(),
+  timestampEndSec: z.number().int().min(0).max(86400).optional(),
+  eventDate: z.string().optional(),
+  quoteAtMoment: z.string().trim().max(10000).optional(),
+  distortionDescription: z.string().trim().max(10000).optional(),
+  linkedOriginalMomentId: z.number().int().positive().optional(),
+  /** Também grava uma evidência espelho, para o leitor ver na trilha do caso */
+  mirrorAsEvidence: z.boolean().default(true),
+});
+
+export const googleFactCheckInputSchema = z.object({
+  caseId: z.number().int().positive(),
+  query: z.string().trim().max(500).optional(),
+  languageCode: z.string().trim().max(10).default("pt-BR"),
+  pageSize: z.number().int().min(1).max(20).default(10),
+  maxAgeDays: z.number().int().min(1).max(3650).optional(),
+});
+
+export const bcbCrossCheckInputSchema = z.object({
+  caseId: z.number().int().positive(),
+  seriesId: z.number().int().positive().optional(),
+  lastN: z.number().int().min(1).max(36).default(12),
+  registerEvidence: z.boolean().default(true),
+  relation: relationSchema.default("contextualiza"),
+});
+
+export const casePipelineInputSchema = z.object({
+  caseId: z.number().int().positive(),
+  runFactChecks: z.boolean().default(true),
+  runOfficialSearch: z.boolean().default(true),
+  runBcb: z.boolean().default(true),
 });
 
 export function assertPublishable(input: { workflowStatus: z.infer<typeof workflowSchema>; methodology?: string | null; editorialNote?: string | null }, hasApprovedReview: boolean) {
@@ -232,6 +281,40 @@ async function runDiscovery(input: {
 
 function toIsoDate(value: Date) {
   return value.toISOString().slice(0, 10);
+}
+
+/** Aceita ISO (2026-08-30) ou dd/mm/aaaa; devolve undefined se não for data válida. */
+export function safeParseDate(value?: string) {
+  const raw = value?.trim();
+  if (!raw) return undefined;
+  const br = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  const parsed = br ? new Date(`${br[3]}-${br[2]}-${br[1]}T12:00:00Z`) : new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+}
+
+/** "1h02m03s" legível a partir de segundos, para ancorar o instante da fala. */
+export function formatTimecode(totalSeconds: number) {
+  const s = Math.max(0, Math.floor(totalSeconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  return [h > 0 ? `${h}h` : "", h > 0 || m > 0 ? `${String(m).padStart(h > 0 ? 2 : 1, "0")}m` : "", `${String(sec).padStart(2, "0")}s`].join("");
+}
+
+/** Link direto para o instante no YouTube; nas demais mídias devolve a própria URL. */
+export function momentDeepLink(url: string, startSec?: number | null) {
+  if (startSec == null || startSec < 0) return url;
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    if (host.includes("youtube.com") || host.includes("youtu.be")) {
+      parsed.searchParams.set("t", `${Math.floor(startSec)}s`);
+      return parsed.toString();
+    }
+    return url;
+  } catch {
+    return url;
+  }
 }
 
 function sanitizeUser<T extends { passwordHash?: string | null }>(user: T) {
@@ -469,6 +552,151 @@ export const appRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "A simulação não conseguiu consultar o endpoint público." });
       }
     }),
+    /** Checagens já publicadas por veículos com ClaimReview (Google Fact Check Tools). */
+    googleFactChecks: protectedProcedure.input(googleFactCheckInputSchema).mutation(async ({ input, ctx }) => {
+      const bundle = await getCaseBundle(input.caseId);
+      if (!bundle.caseRecord) throw new TRPCError({ code: "NOT_FOUND", message: "Caso não encontrado" });
+      if (!isGoogleFactCheckConfigured()) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "GOOGLE_FACTCHECK_API_KEY não configurada. Habilite a Fact Check Tools API no Google Cloud e defina a chave.",
+        });
+      }
+      const query = cleanOptional(input.query) ?? bundle.caseRecord.claimText.slice(0, 300);
+      const task = await createResearchTask({
+        caseId: input.caseId,
+        objective: `Buscar checagens publicadas (ClaimReview) para: ${query}`.slice(0, 5000),
+        workerRole: "triagem",
+        requestedBy: ctx.user.id,
+      });
+      try {
+        const result = await searchGoogleFactChecks({
+          query,
+          languageCode: input.languageCode,
+          pageSize: input.pageSize,
+          maxAgeDays: input.maxAgeDays,
+        });
+        // Achados são candidatos: o editor abre, confere e registra como evidência.
+        const candidates = result.claims.flatMap(claim =>
+          claim.reviews.map(review => ({
+            claimText: claim.text,
+            claimant: claim.claimant,
+            claimDate: claim.claimDate,
+            publisherName: review.publisherName,
+            url: review.url,
+            title: review.title,
+            reviewDate: review.reviewDate,
+            textualRating: review.textualRating,
+            suggestedRelation: ratingToRelation(review.textualRating),
+          })),
+        );
+        return {
+          task,
+          provider: result.provider,
+          query: result.query,
+          candidates,
+          note: result.note,
+        };
+      } catch (error) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Falha ao consultar o Google Fact Check." });
+      }
+    }),
+    /**
+     * "Rodar fluxo completo": dispara em paralelo as fontes disponíveis e devolve
+     * material para leitura editorial. Nenhuma etapa decide status ou veredito.
+     */
+    prepareCasePipeline: protectedProcedure.input(casePipelineInputSchema).mutation(async ({ input, ctx }) => {
+      const bundle = await getCaseBundle(input.caseId);
+      if (!bundle.caseRecord) throw new TRPCError({ code: "NOT_FOUND", message: "Caso não encontrado" });
+      const claimText = bundle.caseRecord.claimText;
+      const steps: Array<{ step: string; status: "ok" | "pulado" | "erro"; detail: string }> = [];
+
+      const officialQuery = claimText.slice(0, 200);
+      const end = new Date();
+      const start = new Date(end.getTime() - 180 * 24 * 60 * 60 * 1000);
+
+      const [factChecks, officialDiscovery, bcb] = await Promise.all([
+        // 1. Checagens já publicadas (ClaimReview)
+        (async () => {
+          if (!input.runFactChecks) return null;
+          if (!isGoogleFactCheckConfigured()) {
+            steps.push({ step: "Google Fact Check", status: "pulado", detail: "GOOGLE_FACTCHECK_API_KEY não configurada." });
+            return null;
+          }
+          try {
+            const result = await searchGoogleFactChecks({ query: claimText.slice(0, 300), languageCode: "pt-BR", pageSize: 10 });
+            const candidates = result.claims.flatMap(claim =>
+              claim.reviews.map(review => ({
+                claimText: claim.text,
+                claimant: claim.claimant,
+                publisherName: review.publisherName,
+                url: review.url,
+                title: review.title,
+                reviewDate: review.reviewDate,
+                textualRating: review.textualRating,
+                suggestedRelation: ratingToRelation(review.textualRating),
+              })),
+            );
+            steps.push({ step: "Google Fact Check", status: "ok", detail: `${candidates.length} checagem(ns) publicada(s) encontrada(s).` });
+            return candidates;
+          } catch (error) {
+            steps.push({ step: "Google Fact Check", status: "erro", detail: error instanceof Error ? error.message : "falha" });
+            return null;
+          }
+        })(),
+        // 2. Cobertura em domínios oficiais (.gov.br/.jus.br/.leg.br)
+        (async () => {
+          if (!input.runOfficialSearch) return null;
+          try {
+            const siteFilter = OFFICIAL_SEARCH_SITES.map(site => `site:${site}`).join(" OR ");
+            const result = await runDiscovery({
+              caseId: input.caseId,
+              query: `${officialQuery} (${siteFilter})`,
+              searchKeySeed: `pipeline-oficial:${officialQuery}`,
+              startDate: toIsoDate(start),
+              endDate: toIsoDate(end),
+              language: "por",
+              domains: [],
+              maxRecords: 10,
+              objective: `Fluxo completo — cruzar com fontes oficiais: ${officialQuery}`,
+              requestedBy: ctx.user.id,
+            });
+            steps.push({ step: "Fontes oficiais", status: "ok", detail: `${result.results.length} candidato(s) em domínios oficiais.` });
+            return result;
+          } catch (error) {
+            steps.push({ step: "Fontes oficiais", status: "erro", detail: error instanceof Error ? error.message : "falha" });
+            return null;
+          }
+        })(),
+        // 3. Série oficial do BCB, quando a alegação cita IPCA/Selic/câmbio
+        (async () => {
+          if (!input.runBcb) return null;
+          const suggestions = suggestBcbSeries(claimText);
+          if (!suggestions.length) {
+            steps.push({ step: "BCB SGS", status: "pulado", detail: "A alegação não cita indicador econômico do catálogo." });
+            return null;
+          }
+          try {
+            const series = await fetchBcbSgsSeries({ seriesId: suggestions[0].id, lastN: 12 });
+            steps.push({ step: "BCB SGS", status: "ok", detail: `${series.seriesName}: ${series.points.length} ponto(s).` });
+            return { suggestions, series };
+          } catch (error) {
+            steps.push({ step: "BCB SGS", status: "erro", detail: error instanceof Error ? error.message : "falha" });
+            return null;
+          }
+        })(),
+      ]);
+
+      return {
+        caseId: input.caseId,
+        steps,
+        factChecks,
+        officialDiscovery,
+        bcb,
+        editorialNote:
+          "Material preparado para leitura editorial. Abra cada item, confira a fonte primária e registre como evidência. O status e o veredito continuam sendo decisão humana.",
+      };
+    }),
     recordFinding: protectedProcedure.input(evidenceInputSchema.extend({ taskId: z.number().int().positive().optional(), findingId: z.number().int().positive().optional() })).mutation(async ({ input }) => {
       const bundle = await getCaseBundle(input.caseId);
       if (!bundle.caseRecord) throw new TRPCError({ code: "NOT_FOUND", message: "Caso não encontrado" });
@@ -484,6 +712,174 @@ export const appRouter = router({
       });
       if (input.findingId) await markHistoricalFindingEvidence(input.findingId, evidence.id);
       return evidence;
+    }),
+  }),
+  /** Dados oficiais consultáveis sem credencial (BCB SGS). */
+  official: router({
+    catalog: protectedProcedure.query(() => ({
+      bcbSgs: Object.entries(BCB_SGS_CATALOG).map(([key, meta]) => ({
+        key,
+        id: meta.id,
+        name: meta.name,
+        unit: meta.unit,
+        keywords: meta.keywords,
+      })),
+      factCheckConfigured: isGoogleFactCheckConfigured(),
+    })),
+    suggest: protectedProcedure
+      .input(z.object({ claimText: z.string().trim().min(3).max(5000) }))
+      .query(({ input }) => ({ suggestions: suggestBcbSeries(input.claimText) })),
+    bcbSeries: protectedProcedure
+      .input(z.object({
+        seriesId: z.number().int().positive(),
+        monthsBack: z.number().int().min(1).max(60).default(12),
+        lastN: z.number().int().min(1).max(36).default(12),
+      }))
+      .mutation(async ({ input }) => {
+        try {
+          return await fetchBcbSgsSeries(input);
+        } catch (error) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Falha ao consultar o BCB" });
+        }
+      }),
+    /** Deriva a série da própria alegação e registra evidência candidata. */
+    crossCheckBcb: protectedProcedure.input(bcbCrossCheckInputSchema).mutation(async ({ input, ctx }) => {
+      const bundle = await getCaseBundle(input.caseId);
+      if (!bundle.caseRecord) throw new TRPCError({ code: "NOT_FOUND", message: "Caso não encontrado" });
+      const suggestions = suggestBcbSeries(bundle.caseRecord.claimText);
+      const seriesId = input.seriesId ?? suggestions[0]?.id;
+      if (!seriesId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Nenhuma série do BCB é óbvia para esta alegação. Escolha um ID do catálogo (ex.: 433 = IPCA).",
+        });
+      }
+      const task = await createResearchTask({
+        caseId: input.caseId,
+        objective: `Consultar série ${seriesId} no BCB SGS`,
+        workerRole: "navegador",
+        requestedBy: ctx.user.id,
+      });
+      try {
+        const series = await fetchBcbSgsSeries({ seriesId, lastN: input.lastN });
+        const latest = series.points[series.points.length - 1];
+        const pointsSummary = series.points
+          .slice(-8)
+          .map(point => `${point.date}: ${point.value}${series.unit ? ` ${series.unit}` : ""}`)
+          .join(" | ");
+        let evidence = null as Awaited<ReturnType<typeof addEvidence>> | null;
+        if (input.registerEvidence) {
+          evidence = await addEvidence({
+            caseId: input.caseId,
+            title: `BCB SGS — ${series.seriesName}${latest ? ` (${latest.date}: ${latest.value})` : ""}`.slice(0, 500),
+            url: series.sourceUrl,
+            sourceName: "Banco Central do Brasil (SGS)",
+            sourceType: "oficial",
+            sourceDate: safeParseDate(latest?.date),
+            context: `Retorno da tarefa #${task?.id ?? ""}. Série oficial ${series.seriesId} (${series.seriesName}). Não constitui veredito — compare com a alegação e ajuste a relação se necessário.`,
+            excerpt: pointsSummary.slice(0, 4000) || "Sem pontos na janela consultada.",
+            relation: input.relation,
+          });
+        }
+        return {
+          task,
+          suggestions,
+          series,
+          evidence,
+          editorialNote: "Evidência candidata a partir de dado oficial do BCB. Revise números, datas e a relação antes de publicar.",
+        };
+      } catch (error) {
+        if (error instanceof TRPCError) throw error;
+        throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Falha ao consultar o BCB" });
+      }
+    }),
+  }),
+  /**
+   * Momentos indexados: prova original × versão viral/distorcida.
+   * Ancora o instante da fala e descreve o que a versão viral cortou ou omitiu.
+   */
+  moments: router({
+    list: protectedProcedure
+      .input(z.object({ caseId: z.number().int().positive() }))
+      .query(({ input }) => listSourceMoments(input.caseId)),
+    register: protectedProcedure.input(sourceMomentInputSchema).mutation(async ({ input, ctx }) => {
+      const bundle = await getCaseBundle(input.caseId);
+      if (!bundle.caseRecord) throw new TRPCError({ code: "NOT_FOUND", message: "Caso não encontrado" });
+      if (input.timestampStartSec != null && input.timestampEndSec != null && input.timestampEndSec < input.timestampStartSec) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "O fim do trecho deve ser posterior ao início." });
+      }
+      if (input.role === "viral_distorcido" && !cleanOptional(input.distortionDescription)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Descreva a distorção (o que foi cortado, omitido ou refraseado) ao indexar a versão viral.",
+        });
+      }
+      if (input.linkedOriginalMomentId != null) {
+        const existing = await listSourceMoments(input.caseId);
+        const target = existing.find(moment => moment.id === input.linkedOriginalMomentId);
+        if (!target) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "O momento original vinculado não pertence a este caso." });
+        }
+        if (target.role !== "original") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Vincule a versão viral a um momento marcado como prova original." });
+        }
+      }
+
+      const moment = await createSourceMoment({
+        caseId: input.caseId,
+        role: input.role,
+        mediaKind: input.mediaKind,
+        title: input.title.trim(),
+        url: input.url,
+        sourceName: input.sourceName.trim(),
+        timestampStartSec: input.timestampStartSec,
+        timestampEndSec: input.timestampEndSec,
+        eventDate: safeParseDate(input.eventDate),
+        quoteAtMoment: cleanOptional(input.quoteAtMoment),
+        distortionDescription: cleanOptional(input.distortionDescription),
+        linkedOriginalMomentId: input.linkedOriginalMomentId,
+        createdBy: ctx.user.id,
+      });
+
+      let evidence = null as Awaited<ReturnType<typeof addEvidence>> | null;
+      if (input.mirrorAsEvidence) {
+        const roleLabel =
+          input.role === "original" ? "PROVA ORIGINAL" : input.role === "viral_distorcido" ? "VERSÃO VIRAL / DISTORCIDA" : "CONTEXTO";
+        const timecode =
+          input.timestampStartSec != null
+            ? ` [${formatTimecode(input.timestampStartSec)}${input.timestampEndSec != null ? `–${formatTimecode(input.timestampEndSec)}` : ""}]`
+            : "";
+        evidence = await addEvidence({
+          caseId: input.caseId,
+          title: `${roleLabel}: ${input.title.trim()}`.slice(0, 500),
+          url: momentDeepLink(input.url, input.timestampStartSec),
+          sourceName: input.sourceName.trim(),
+          sourceType: input.role === "original" ? "documento" : "outra",
+          sourceDate: safeParseDate(input.eventDate),
+          context: [
+            `${roleLabel}${timecode}.`,
+            cleanOptional(input.quoteAtMoment) ? `Trecho no momento: ${input.quoteAtMoment!.trim()}` : null,
+            cleanOptional(input.distortionDescription) ? `Distorção identificada: ${input.distortionDescription!.trim()}` : null,
+            input.linkedOriginalMomentId ? `Vinculado ao momento original #${input.linkedOriginalMomentId}.` : null,
+            "Indexação de momento — apoio editorial, não veredito automático.",
+          ]
+            .filter(Boolean)
+            .join(" "),
+          excerpt: cleanOptional(input.quoteAtMoment) ?? cleanOptional(input.distortionDescription),
+          relation: input.role === "viral_distorcido" ? "contradiz" : input.role === "original" ? "contextualiza" : "neutra",
+        });
+      }
+
+      return {
+        moment,
+        evidence,
+        editorialNote:
+          input.role === "original"
+            ? "Prova original indexada. Use o instante para ancorar a fala ou o ato."
+            : input.role === "viral_distorcido"
+              ? "Versão viral indexada com a distorção descrita. Vincule-a à prova original para o leitor comparar."
+              : "Momento de contexto indexado.",
+      };
     }),
   }),
   analysis: router({
@@ -536,6 +932,97 @@ export const appRouter = router({
           throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "O modelo retornou um formato que precisa de revisão técnica." });
         }
         return saveAnalysis({ ...parsed, caseId: input.caseId, modelLabel: model });
+      }),
+    /**
+     * Laudo "fulano disse isso?" — avalia atribuição da fala e uso fora de contexto.
+     * Produz material para o editor; não decide o veredito público.
+     */
+    quoteLaudo: protectedProcedure
+      .input(z.object({
+        caseId: z.number().int().positive(),
+        attributedPerson: z.string().trim().min(2).max(200).optional(),
+        allegedQuote: z.string().trim().min(8).max(5000).optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const bundle = await getCaseBundle(input.caseId);
+        if (!bundle.caseRecord) throw new TRPCError({ code: "NOT_FOUND", message: "Caso não encontrado" });
+        const { data } = await listLLMModels();
+        const model = data.find(item => /claude|gemini|gpt/i.test(item.id))?.id ?? data[0]?.id;
+
+        const evidenceContext = bundle.evidenceRows.length
+          ? bundle.evidenceRows.map((evidence, index) => `${index + 1}. ${evidence.title} | ${evidence.sourceName} | relação: ${evidence.relation}\nURL: ${evidence.url}\nContexto: ${evidence.context}\nTrecho: ${evidence.excerpt ?? "não informado"}`).join("\n\n")
+          : "Nenhuma evidência cadastrada ainda.";
+        const momentContext = bundle.momentRows.length
+          ? bundle.momentRows.map(moment => {
+              const timecode = moment.timestampStartSec != null ? ` [${formatTimecode(moment.timestampStartSec)}]` : "";
+              return `- ${moment.role}${timecode}: ${moment.title} (${moment.sourceName})\n  URL: ${moment.url}\n  Trecho no momento: ${moment.quoteAtMoment ?? "não informado"}\n  Distorção descrita: ${moment.distortionDescription ?? "não informada"}`;
+            }).join("\n")
+          : "Nenhum momento indexado ainda (prova original / versão viral).";
+
+        const person = input.attributedPerson?.trim() || "a pessoa citada na alegação";
+        const quote = input.allegedQuote?.trim() || bundle.caseRecord.claimText;
+
+        const response = await invokeLLM({
+          model,
+          messages: [
+            {
+              role: "system",
+              content: `Você é analista de checagem especializado em falas atribuídas e trechos fora de contexto.
+Missão: ajudar a responder se a pessoa realmente disse o trecho e se ele foi usado fora do contexto original (montagem, corte, omissão do antes/depois).
+Regras:
+- Nunca invente vídeos, datas, links ou transcrições.
+- Se faltar evidência, use "insuficiente" nos campos de avaliação.
+- Não emita veredito final nem rótulos absolutos de "fake news".
+- Linguagem cautelosa e editorial, em português do Brasil.
+- Foque em atribuição da fala, contexto original, o que foi omitido e quais fontes primárias buscar.`,
+            },
+            {
+              role: "user",
+              content: `Pergunta do editor: é verdade que ${person} disse o trecho abaixo?\n\nTrecho alegado:\n"""\n${quote}\n"""\n\nAlegação completa do caso:\n${bundle.caseRecord.claimText}\n\nURL de origem do caso: ${bundle.caseRecord.claimUrl || "não informada"}\n\nMomentos indexados:\n${momentContext}\n\nEvidências já registradas:\n${evidenceContext}\n\nProduza o laudo estruturado.`,
+            },
+          ],
+          response_format: {
+            type: "json_schema",
+            json_schema: {
+              name: "quote_context_laudo",
+              strict: true,
+              schema: {
+                type: "object",
+                properties: {
+                  attributedPerson: { type: "string" },
+                  allegedQuote: { type: "string" },
+                  attributionStatus: { type: "string", enum: ["atribuicao_sustentada", "atribuicao_parcial", "atribuicao_nao_encontrada", "insuficiente"] },
+                  contextStatus: { type: "string", enum: ["no_contexto", "fora_de_contexto", "contexto_parcial", "insuficiente"] },
+                  originalContextSummary: { type: "string" },
+                  omittedOrDistorted: { type: "string" },
+                  mediaFramingRisk: { type: "string" },
+                  primarySourcesToSeek: { type: "array", items: { type: "string" } },
+                  evidenceGaps: { type: "array", items: { type: "string" } },
+                  editorialLaudo: { type: "string" },
+                },
+                required: [
+                  "attributedPerson",
+                  "allegedQuote",
+                  "attributionStatus",
+                  "contextStatus",
+                  "originalContextSummary",
+                  "omittedOrDistorted",
+                  "mediaFramingRisk",
+                  "primarySourcesToSeek",
+                  "evidenceGaps",
+                  "editorialLaudo",
+                ],
+                additionalProperties: false,
+              },
+            },
+          },
+        });
+        const raw = readLLMText(response.choices?.[0]?.message?.content);
+        try {
+          return { ...(JSON.parse(raw) as Record<string, unknown>), modelLabel: model };
+        } catch {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "O modelo retornou um formato que precisa de revisão técnica." });
+        }
       }),
   }),
 });

@@ -2,7 +2,7 @@
 
 Plataforma editorial para transformar alegações (texto, link ou print) em casos de checagem verificáveis: extração assistida por IA, evidências rastreáveis e decisão de publicação sempre humana.
 
-Veja `ESTADO_ATUAL.md` para o estado funcional detalhado e `AGENT_INTEGRATION.md` para o contrato de integração com agentes de pesquisa externos.
+Veja `FLOW.md` para o fluxo de apuração ponta a ponta, `ESTADO_ATUAL.md` para o estado funcional detalhado e `AGENT_INTEGRATION.md` para o contrato de integração com agentes de pesquisa externos.
 
 ## Stack
 
@@ -24,6 +24,7 @@ Preencha no `.env`:
 - `OWNER_OPEN_ID` — opcional; `openId` (`email:seu@email.com`) que deve receber a role `admin` automaticamente.
 - `APP_URL` — URL pública do app (ex.: `https://verificafonte.up.railway.app`); usada para montar o redirect do login com Google. Em dev local pode ficar vazia.
 - `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` — opcionais; sem eles, o botão "Continuar com Google" retorna erro no backend, mas o login por e-mail/senha funciona normalmente. Para habilitar, crie um OAuth Client ID (tipo "Web application") no [Google Cloud Console](https://console.cloud.google.com/apis/credentials) com o URI de redirecionamento autorizado `<APP_URL>/api/oauth/google/callback`.
+- `GOOGLE_FACTCHECK_API_KEY` — opcional; habilita a busca por checagens já publicadas (ClaimReview) via [Fact Check Tools API](https://developers.google.com/fact-check/tools/api). Sem a chave, essa etapa do fluxo é reportada como "pulada" e as demais continuam funcionando. O conector do Banco Central (SGS) é público e não exige credencial.
 
 ## Banco de dados
 
