@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { isPublicHttpsUrl } from "./_core/safeFetch";
-import { assertPublishable, hasIndependentApproval } from "./routers";
+import { appRouter, assertPublishable, hasIndependentApproval } from "./routers";
+import type { TrpcContext } from "./_core/context";
 
 describe("guarda SSRF", () => {
   it("aceita apenas HTTPS público", () => {
@@ -95,5 +96,59 @@ describe("barreira editorial: revisão independente", () => {
     expect(() => assertPublishable(publicando, false, true)).toThrow(/outra pessoa da redação/);
     expect(() => assertPublishable(publicando, false, false)).toThrow(/revisão humana aprovada/);
     expect(() => assertPublishable(publicando, true)).not.toThrow();
+  });
+});
+
+describe("guarda de URL na entrada, não só na busca", () => {
+  /**
+   * A guarda HTTPS protegia quem BUSCA uma URL (safeFetch, contra SSRF), mas
+   * não quem ARMAZENA. Era possível gravar uma URL interna que depois apareceria
+   * como link clicável para o leitor na página pública. Estes testes travam a
+   * validação nas rotas que persistem URL.
+   */
+  function editorContext(): TrpcContext {
+    return {
+      user: { id: 1, openId: "editor", name: "Editor", email: null, loginMethod: "email", passwordHash: null, role: "editor", createdAt: new Date(), updatedAt: new Date(), lastSignedIn: new Date() },
+      req: { protocol: "https", headers: {} },
+      res: {},
+    } as unknown as TrpcContext;
+  }
+
+  const URLS_RECUSADAS = [
+    "http://exemplo.com/materia",
+    "https://169.254.169.254/latest/meta-data/",
+    "https://localhost/admin",
+    "https://10.0.0.1/interno",
+    "https://172.16.0.1/interno",
+  ];
+
+  it("cases.create recusa claimUrl que não seja HTTPS pública", async () => {
+    const caller = appRouter.createCaller(editorContext());
+    for (const url of URLS_RECUSADAS) {
+      await expect(
+        caller.cases.create({ claimText: "Uma alegação suficientemente longa para passar", claimUrl: url }),
+        url,
+      ).rejects.toThrow(/HTTPS pública|url/i);
+    }
+  });
+
+  it("evidences.add recusa URL de evidência que não seja HTTPS pública", async () => {
+    const caller = appRouter.createCaller(editorContext());
+    for (const url of URLS_RECUSADAS) {
+      await expect(
+        caller.evidences.add({ caseId: 1, title: "Fonte", url, sourceName: "Origem", sourceType: "oficial", context: "Contexto suficiente para o teste", relation: "apoia" }),
+        url,
+      ).rejects.toThrow(/HTTPS pública|url/i);
+    }
+  });
+
+  it("moments.register recusa URL de momento que não seja HTTPS pública", async () => {
+    const caller = appRouter.createCaller(editorContext());
+    for (const url of URLS_RECUSADAS) {
+      await expect(
+        caller.moments.register({ caseId: 1, title: "Momento indexado", url, sourceName: "Canal" }),
+        url,
+      ).rejects.toThrow(/HTTPS pública|url/i);
+    }
   });
 });
