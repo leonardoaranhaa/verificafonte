@@ -64,7 +64,7 @@ export default function Panel() {
       <IntegrationsStrip />
       {activeTab === "equipe" ? <TeamAccess currentUserId={user.id} /> : activeTab === "orchestration" ? <Orchestration /> : activeTab === "review" ? <ReviewQueue cases={cases ?? []} onOpen={id => setLocation(`/painel?caseId=${id}`)} /> : <div className="workspace-layout">
         <section className="case-list-pane"><div className="pane-title"><div><span className="panel-kicker">SEUS CASOS</span><h2>Fila de verificação</h2></div><span className="case-total">{cases?.length ?? 0}</span></div><div className="case-list">{casesLoading ? <div className="list-placeholder">Buscando casos…</div> : cases?.length ? cases.map(item => <button className={`case-list-item ${item.id === caseId ? "selected" : ""}`} key={item.id} onClick={() => setLocation(`/painel?caseId=${item.id}`)}><div className="case-list-meta"><span className={`status-dot ${statusTone[item.status]}`}></span><span>{workflowLabels[item.workflowStatus]}</span><span>·</span><span>{formatDate(item.updatedAt)}</span></div><strong>{item.claimText}</strong><ChevronRight size={16} /></button>) : <div className="list-empty"><div className="empty-icon"><FilePlus2 size={17} /></div><p>Seus casos aparecem aqui.</p><button className="button button-dark button-small" onClick={() => setLocation("/")}>Criar primeiro caso</button></div>}</div></section>
-        <section className="case-workspace">{!caseId ? <WorkspaceWelcome /> : bundleLoading ? <div className="workspace-empty"><div className="loading-orbit"></div><p>Carregando caso…</p></div> : selectedCase ? <><div className="workspace-heading"><div><div className="breadcrumb"><span>Casos</span><ChevronRight size={13} /><span>{selectedCase.workflowStatus === "publicado" ? "Público" : "Em trabalho"}</span></div><h2>{selectedCase.claimText}</h2>{selectedCase.claimUrl && <a href={selectedCase.claimUrl} target="_blank" rel="noreferrer" className="origin-link"><Link2 size={14} /> Ver publicação original <ArrowUpRight size={13} /></a>}</div><span className={`status-pill ${statusTone[selectedCase.status]}`}>{statusLabels[selectedCase.status]}</span></div><div className="case-subnav"><button className="subnav-active">Visão geral</button><span>Atualizado em {formatDate(selectedCase.updatedAt)}</span><span className="workflow-badge">{workflowLabels[selectedCase.workflowStatus]}</span></div><div className="workspace-grid"><div className="workspace-primary"><EvidencePanel evidence={bundle.evidenceRows} onAdd={() => setShowEvidenceForm(true)} sourceMix={sourceMix} /><MomentsPanel caseId={caseId} moments={bundle.momentRows} onAdd={() => setShowMomentForm(true)} /><AnalysisPanel analysis={lastAnalysis} isPending={generateAnalysis.isPending} disabled={!evidenceCount} onGenerate={() => generateAnalysis.mutate({ caseId })} /></div><aside className="workspace-aside"><EditorialPanel selectedCase={selectedCase} reviews={bundle.reviewRows} onUpdate={(payload) => updateWorkflow.mutate({ caseId, ...payload })} onReview={() => setShowReviewForm(true)} /><AgentPanel caseId={caseId} /></aside></div></> : <div className="workspace-empty"><AlertCircle size={20} /><p>Não foi possível localizar este caso.</p></div>}</section>
+        <section className="case-workspace">{!caseId ? <WorkspaceWelcome /> : bundleLoading ? <div className="workspace-empty"><div className="loading-orbit"></div><p>Carregando caso…</p></div> : selectedCase ? <><div className="workspace-heading"><div><div className="breadcrumb"><span>Casos</span><ChevronRight size={13} /><span>{selectedCase.workflowStatus === "publicado" ? "Público" : "Em trabalho"}</span></div><h2>{selectedCase.claimText}</h2>{selectedCase.claimUrl && <a href={selectedCase.claimUrl} target="_blank" rel="noreferrer" className="origin-link"><Link2 size={14} /> Ver publicação original <ArrowUpRight size={13} /></a>}</div><span className={`status-pill ${statusTone[selectedCase.status]}`}>{statusLabels[selectedCase.status]}</span></div><div className="case-subnav"><button className="subnav-active">Visão geral</button><span>Atualizado em {formatDate(selectedCase.updatedAt)}</span><span className="workflow-badge">{workflowLabels[selectedCase.workflowStatus]}</span></div><div className="workspace-grid"><div className="workspace-primary"><EvidencePanel evidence={bundle.evidenceRows} onAdd={() => setShowEvidenceForm(true)} sourceMix={sourceMix} /><VerificationPanel caseId={caseId} /><MomentsPanel caseId={caseId} moments={bundle.momentRows} onAdd={() => setShowMomentForm(true)} /><AnalysisPanel analysis={lastAnalysis} isPending={generateAnalysis.isPending} disabled={!evidenceCount} onGenerate={() => generateAnalysis.mutate({ caseId })} /></div><aside className="workspace-aside"><EditorialPanel selectedCase={selectedCase} reviews={bundle.reviewRows} onUpdate={(payload) => updateWorkflow.mutate({ caseId, ...payload })} onReview={() => setShowReviewForm(true)} /><AgentPanel caseId={caseId} /></aside></div></> : <div className="workspace-empty"><AlertCircle size={20} /><p>Não foi possível localizar este caso.</p></div>}</section>
       </div>}
     </main>
     {showEvidenceForm && <EvidenceForm onClose={() => setShowEvidenceForm(false)} isPending={addEvidence.isPending} onSubmit={values => addEvidence.mutate({ caseId, ...values })} />}
@@ -137,6 +137,69 @@ function TeamAccess({ currentUserId }: { currentUserId: number }) {
 function WorkspaceWelcome() { return <div className="workspace-empty welcome-empty"><div className="welcome-mark"><GitCompareArrows size={25} /></div><div className="eyebrow">Bancada de checagem</div><h2>Escolha um caso para começar.</h2><p>Registre fontes, compare relações e prepare um briefing para revisão. A publicação só acontece quando uma pessoa decide.</p><div className="welcome-steps"><span><b>01</b> Alegação</span><span><b>02</b> Evidências</span><span><b>03</b> Revisão</span></div></div>; }
 
 function EvidencePanel({ evidence, onAdd, sourceMix }: { evidence: Array<{ id: number; title: string; url: string; sourceName: string; sourceType: string; sourceDate: Date | null; accessedAt: Date; context: string; excerpt: string | null; relation: string }>; onAdd: () => void; sourceMix: { official: number; journalistic: number; other: number } }) { return <div className="workspace-card evidence-panel"><div className="card-heading"><div><span className="panel-kicker">TRILHA DE EVIDÊNCIAS</span><h3>Fontes registradas <span>{evidence.length}</span></h3></div><button className="button button-outline button-small" onClick={onAdd}><Plus size={15} /> Adicionar</button></div>{evidence.length ? <><div className="source-mix"><span><i className="mix-official"></i> Oficiais <b>{sourceMix.official}</b></span><span><i className="mix-journalistic"></i> Reportagens <b>{sourceMix.journalistic}</b></span><span><i className="mix-other"></i> Outras <b>{sourceMix.other}</b></span></div><div className="evidence-list">{evidence.map(item => <div className="evidence-row" key={item.id}><div className="evidence-row-icon"><Link2 size={16} /></div><div className="evidence-row-content"><div className="evidence-row-top"><span className="source-type-label">{item.sourceType}</span><span>{item.relation}</span></div><h4>{item.title}</h4><p>{item.sourceName} · consultada em {new Date(item.accessedAt).toLocaleDateString("pt-BR")}</p><div className="evidence-context">{item.context}</div><a href={item.url} target="_blank" rel="noreferrer">Abrir fonte <ArrowUpRight size={13} /></a></div></div>)}</div></> : <div className="card-empty"><div className="empty-icon"><Link2 size={16} /></div><p>Adicione uma primeira fonte primária ou reportagem para abrir a comparação.</p><button className="text-action" onClick={onAdd}>Registrar evidência <ArrowUpRight size={14} /></button></div>}</div>; }
+
+
+const outcomeLabels = { confere: "Confere", confere_arredondado: "Confere (aproximado)", diverge: "Diverge", nao_verificavel: "Não verificável", sem_afirmacoes: "Sem números a conferir" } as const;
+const outcomeTone = { confere: "status-confirmed", confere_arredondado: "status-divergent", diverge: "status-insufficient", nao_verificavel: "status-research", sem_afirmacoes: "status-research" } as const;
+
+type VerificationResult = {
+  checks: Array<{ assertion: { indicator: string; value: number; unit?: string; period?: string; excerpt: string }; outcome: keyof typeof outcomeLabels; official?: { value: number; unit?: string; period: string; sourceName: string; sourceUrl: string }; explanation: string }>;
+  corroborations: Array<{ indicator: string; sources: string[]; agree: boolean }>;
+  summary: { overall: keyof typeof outcomeLabels; counts: Record<string, number>; total: number };
+  evidence: unknown[];
+  editorialNote: string;
+};
+
+/**
+ * Confere os números da alegação contra a fonte oficial. É a única parte do
+ * fluxo que chega a um veredito sozinha — porque é aritmética reproduzível,
+ * não leitura editorial. O status do caso continua sendo decisão do editor.
+ */
+function VerificationPanel({ caseId }: { caseId: number }) {
+  const utils = trpc.useUtils();
+  const [result, setResult] = useState<VerificationResult | null>(null);
+  const check = trpc.verification.checkCase.useMutation({
+    onSuccess: async data => {
+      setResult(data as VerificationResult);
+      await utils.cases.workspace.invalidate({ caseId });
+      toast.success(data.summary.total ? `${data.summary.total} afirmação(ões) conferida(s)` : "Nenhum número desta alegação está no catálogo");
+    },
+    onError: e => toast.error(e.message),
+  });
+
+  return <div className="workspace-card verification-panel">
+    <div className="card-heading">
+      <div><span className="panel-kicker">CONFERÊNCIA AUTOMÁTICA</span><h3>Números contra a fonte oficial</h3></div>
+      {result && <span className={`status-pill ${outcomeTone[result.summary.overall]}`}>{outcomeLabels[result.summary.overall]}</span>}
+    </div>
+    <div className="analysis-disclaimer"><ShieldCheck size={15} /><span>Comparação aritmética reproduzível contra a série oficial. Não define o status do caso.</span></div>
+
+    {result ? <div className="verification-results">
+      {result.checks.map((item, index) => <div className={`verification-item outcome-${item.outcome}`} key={index}>
+        <div className="verification-top"><span className="source-type-label">{item.assertion.indicator}</span><span className={`status-pill ${outcomeTone[item.outcome]}`}>{outcomeLabels[item.outcome]}</span></div>
+        <blockquote>“{item.assertion.excerpt}”</blockquote>
+        {item.official && <div className="verification-numbers">
+          <span><small>Afirmado</small><strong>{item.assertion.value}{item.assertion.unit ? ` ${item.assertion.unit}` : ""}</strong></span>
+          <span><small>Oficial</small><strong>{item.official.value}{item.official.unit ? ` ${item.official.unit}` : ""}</strong></span>
+          <span><small>Período</small><strong>{item.official.period}</strong></span>
+        </div>}
+        <p>{item.explanation}</p>
+        {item.official && <a href={item.official.sourceUrl} target="_blank" rel="noreferrer">Abrir a fonte <ArrowUpRight size={13} /></a>}
+      </div>)}
+
+      {result.corroborations.map(c => <p className={`corroboration ${c.agree ? "" : "conflict"}`} key={c.indicator}>
+        {c.agree ? "✓" : "⚠"} {c.sources.length} fontes independentes {c.agree ? "concordam" : "DIVERGEM entre si"} sobre {c.indicator}: {c.sources.join(" · ")}
+      </p>)}
+
+      <p className="verification-note">{result.editorialNote}</p>
+      <button className="button button-outline button-small" disabled={check.isPending} onClick={() => check.mutate({ caseId, registerEvidence: true })}>Registrar conferência como evidência <ArrowUpRight size={14} /></button>
+    </div> : <div className="analysis-empty">
+      <Sparkles size={19} />
+      <p>Extrai os números da alegação, consulta a série oficial correspondente e diz se batem.</p>
+      <button className="button button-dark button-small" disabled={check.isPending} onClick={() => check.mutate({ caseId, registerEvidence: false })}>{check.isPending ? "Conferindo…" : "Conferir números"}<ArrowUpRight size={14} /></button>
+    </div>}
+  </div>;
+}
 
 function AnalysisPanel({ analysis, isPending, disabled, onGenerate }: { analysis: { extractedClaim: string; evidenceSummary: string; divergences: string; reviewBrief: string; modelLabel: string | null; createdAt: Date } | undefined; isPending: boolean; disabled: boolean; onGenerate: () => void }) { return <div className="workspace-card analysis-panel"><div className="card-heading"><div><span className="panel-kicker">ASSISTÊNCIA DE PESQUISA</span><h3>Briefing para revisão</h3></div><span className="ai-badge"><Sparkles size={13} /> IA + humano</span></div><div className="analysis-disclaimer"><ShieldCheck size={15} /><span>O modelo organiza o material, mas não escolhe o status nem publica o caso.</span></div>{analysis ? <div className="analysis-content"><div><span>Leitura da alegação</span><p>{analysis.extractedClaim}</p></div><div><span>O que as evidências indicam</span><p>{analysis.evidenceSummary}</p></div><div><span>Pontos de divergência</span><p>{analysis.divergences}</p></div><div className="brief-callout"><span>Nota para a revisão humana</span><p>{analysis.reviewBrief}</p></div><small>Gerado com {analysis.modelLabel || "modelo disponível"} · {new Date(analysis.createdAt).toLocaleString("pt-BR")}</small></div> : <div className="analysis-empty"><Bot size={19} /><p>{disabled ? "Adicione evidências antes de gerar um briefing." : "Gere um resumo estruturado para orientar a leitura editorial."}</p><button className="button button-dark button-small" disabled={disabled || isPending} onClick={onGenerate}>{isPending ? "Organizando…" : "Gerar briefing"}<ArrowUpRight size={14} /></button></div>}</div>; }
 

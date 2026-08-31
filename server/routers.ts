@@ -40,6 +40,7 @@ import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { isPublicHttpsUrl, safeFetch, UnsafeUrlError } from "./_core/safeFetch";
 import { checkRateLimit, RATE_LIMITS } from "./_core/rateLimit";
+import { extractAssertions, verifiableIndicators, verifyAssertions } from "./_core/verification";
 
 const registerInputSchema = z.object({
   email: z.string().trim().toLowerCase().email(),
@@ -799,6 +800,79 @@ export const appRouter = router({
     }),
   }),
   /** Dados oficiais consultáveis sem credencial (BCB SGS). */
+  /**
+   * Verificação automática das afirmações quantitativas da alegação.
+   *
+   * Produz um veredito TÉCNICO por afirmação ("o número confere com a fonte
+   * oficial"), obtido por comparação aritmética reproduzível. Não altera o
+   * status do caso nem publica: a decisão editorial segue humana.
+   */
+  verification: router({
+    catalog: editorProcedure.query(() => ({ indicators: verifiableIndicators() })),
+    checkCase: editorProcedure
+      .input(z.object({ caseId: z.number().int().positive(), registerEvidence: z.boolean().default(false) }))
+      .mutation(async ({ input, ctx }) => {
+        checkRateLimit(ctx.user.id, RATE_LIMITS.research);
+        const bundle = await getCaseBundle(input.caseId);
+        if (!bundle.caseRecord) throw new TRPCError({ code: "NOT_FOUND", message: "Caso não encontrado" });
+
+        let assertions: Awaited<ReturnType<typeof extractAssertions>>;
+        try {
+          assertions = await extractAssertions(bundle.caseRecord.claimText);
+        } catch (error) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Não foi possível ler as afirmações desta alegação." });
+        }
+
+        if (!assertions.length) {
+          return {
+            assertions: [],
+            checks: [],
+            corroborations: [],
+            summary: { counts: { confere: 0, confere_arredondado: 0, diverge: 0, nao_verificavel: 0 }, overall: "sem_afirmacoes" as const, total: 0 },
+            evidence: [],
+            editorialNote: "Nenhuma afirmação numérica desta alegação corresponde a um indicador do catálogo. A checagem deste caso é inteiramente editorial.",
+          };
+        }
+
+        const { checks, corroborations, summary } = await verifyAssertions(assertions);
+
+        // A evidência registra o resultado da conferência com os dois números,
+        // para o leitor poder refazer a conta a partir da fonte citada.
+        const evidence: Array<Awaited<ReturnType<typeof addEvidence>>> = [];
+        if (input.registerEvidence) {
+          for (const check of checks) {
+            if (!check.official) continue;
+            evidence.push(
+              await addEvidence({
+                caseId: input.caseId,
+                title: `Conferência automática — ${check.assertion.indicator} (${check.outcome})`.slice(0, 500),
+                url: check.official.sourceUrl,
+                sourceName: check.official.sourceName,
+                sourceType: "oficial",
+                sourceDate: safeParseDate(check.official.period),
+                context: `${check.explanation} Trecho conferido: "${check.assertion.excerpt}". Comparação aritmética reproduzível; a leitura editorial do caso continua humana.`,
+                excerpt: `Afirmado: ${check.assertion.value}${check.assertion.unit ? ` ${check.assertion.unit}` : ""} · Oficial: ${check.official.value}${check.official.unit ? ` ${check.official.unit}` : ""} · Período: ${check.official.period}`,
+                relation: check.outcome === "diverge" ? "contradiz" : check.outcome === "nao_verificavel" ? "neutra" : "apoia",
+              }),
+            );
+          }
+        }
+
+        return {
+          assertions,
+          checks,
+          corroborations,
+          summary,
+          evidence,
+          editorialNote:
+            summary.overall === "diverge"
+              ? "Ao menos um número da alegação diverge da fonte oficial. Confira a série e o período antes de decidir o status."
+              : summary.overall === "confere"
+                ? "Os números conferem com as fontes oficiais consultadas. O status do caso continua sendo decisão sua."
+                : "Confira os pontos marcados como aproximados ou não verificáveis.",
+        };
+      }),
+  }),
   official: router({
     catalog: editorProcedure.query(() => ({
       bcbSgs: Object.entries(BCB_SGS_CATALOG).map(([key, meta]) => ({
