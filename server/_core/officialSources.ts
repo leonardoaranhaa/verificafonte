@@ -135,6 +135,21 @@ export async function fetchBcbSgsSeries(params: {
     points = points.slice(-params.lastN);
   }
 
+  if (!points.length) {
+    throw new Error(
+      `BCB SGS série ${params.seriesId} não retornou pontos no período solicitado. Tente ampliar a janela ou confira o ID da série.`,
+    );
+  }
+
+  // Valores do SGS vêm como string com vírgula; rejeita linha claramente inválida.
+  const unreadable = points.filter(point => {
+    const normalized = point.value.replace(/\./g, "").replace(",", ".");
+    return point.value.trim() !== "" && Number.isNaN(Number(normalized));
+  });
+  if (unreadable.length === points.length) {
+    throw new Error(`BCB SGS série ${params.seriesId} retornou valores que não puderam ser lidos como número.`);
+  }
+
   return {
     provider: "BCB-SGS",
     seriesId: params.seriesId,
