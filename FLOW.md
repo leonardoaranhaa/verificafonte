@@ -1,5 +1,7 @@
 # VerificaFonte — fluxo completo de apuração
 
+> **Posicionamento:** a entrada típica é o que viralizou (print, post, corte, link de rede). IPCA/Selic/câmbio são módulo da camada A — não o limite do produto.
+
 ## Configuração
 
 ```bash
