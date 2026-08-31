@@ -169,10 +169,10 @@ function VerificationPanel({ caseId }: { caseId: number }) {
 
   return <div className="workspace-card verification-panel">
     <div className="card-heading">
-      <div><span className="panel-kicker">CONFERÊNCIA AUTOMÁTICA</span><h3>Números contra a fonte oficial</h3></div>
+      <div><span className="panel-kicker">MÓDULO · DADOS OFICIAIS</span><h3>Números contra a série oficial</h3></div>
       {result && <span className={`status-pill ${outcomeTone[result.summary.overall]}`}>{outcomeLabels[result.summary.overall]}</span>}
     </div>
-    <div className="analysis-disclaimer"><ShieldCheck size={15} /><span>Comparação aritmética reproduzível contra a série oficial. Não define o status do caso.</span></div>
+    <div className="analysis-disclaimer"><ShieldCheck size={15} /><span>Só para alegações com indicador catalogado (IPCA, Selic, câmbio, desocupação, cota etc.). Comparação aritmética — não define o status do caso nem cobre fala/contexto de rede.</span></div>
 
     {result ? <div className="verification-results">
       {result.checks.map((item, index) => <div className={`verification-item outcome-${item.outcome}`} key={index}>
@@ -195,7 +195,7 @@ function VerificationPanel({ caseId }: { caseId: number }) {
       <button className="button button-outline button-small" disabled={check.isPending} onClick={() => check.mutate({ caseId, registerEvidence: true })}>Registrar conferência como evidência <ArrowUpRight size={14} /></button>
     </div> : <div className="analysis-empty">
       <Sparkles size={19} />
-      <p>Extrai os números da alegação, consulta a série oficial correspondente e diz se batem.</p>
+      <p>Quando a postagem cita um número oficial, extrai o valor, consulta a série e diz se bate. Para print, corte ou boato sem número, use momentos e evidências.</p>
       <button className="button button-dark button-small" disabled={check.isPending} onClick={() => check.mutate({ caseId, registerEvidence: false })}>{check.isPending ? "Conferindo…" : "Conferir números"}<ArrowUpRight size={14} /></button>
     </div>}
   </div>;
@@ -249,6 +249,7 @@ function MomentsPanel({ moments, onAdd }: { caseId: number; moments: MomentRow[]
   const virals = moments.filter(moment => moment.role === "viral_distorcido");
   return <div className="workspace-card moments-panel">
     <div className="card-heading"><div><span className="panel-kicker">PROVA ORIGINAL × DISTORÇÃO</span><h3>Momentos indexados <span>{moments.length}</span></h3></div><button className="button button-outline button-small" onClick={onAdd}><Plus size={15} /> Indexar momento</button></div>
+    <p className="field-hint">Use para print, corte de TikTok/Reels, post ou vídeo integral: ancore o instante original e descreva o que a versão viral alterou. É o núcleo da apuração em rede — não só de indicadores econômicos.</p>
     {moments.length ? <>
       <div className="moment-tally"><span><i className="mix-official"></i> Prova original <b>{originals.length}</b></span><span><i className="mix-other"></i> Versão viral <b>{virals.length}</b></span></div>
       <div className="evidence-list">{moments.map(moment => <div className="evidence-row" key={moment.id}>
@@ -355,8 +356,8 @@ function AgentPanel({ caseId }: { caseId: number }) {
     <div className="workspace-card agent-panel">
       <div className="agent-heading"><span className="agent-orbit"><Bot size={17} /></span><div><span className="panel-kicker">AGENTE DE APOIO</span><h3>Cruzamento com fontes oficiais</h3></div><span className="live-label"><i></i> pronto</span></div>
       <p>Busca automaticamente por páginas em domínios .gov.br, .jus.br e .leg.br relacionadas à alegação, nos últimos 180 dias. Cada resultado é uma pista — só vira evidência quando você registrar.</p>
-      <button className="button button-dark button-small" disabled={crossCheck.isPending} onClick={() => crossCheck.mutate({ caseId })}>{crossCheck.isPending ? "Cruzando…" : "Cruzar fontes oficiais"}<Sparkles size={14} /></button>
-      <button className="button button-outline button-small full-width" disabled={pipeline.isPending} onClick={() => pipeline.mutate({ caseId })}>{pipeline.isPending ? "Rodando fluxo…" : "Rodar fluxo completo"}<Layers3 size={14} /></button>
+      <button className="button button-dark button-small" disabled={crossCheck.isPending} onClick={() => crossCheck.mutate({ caseId })}>{crossCheck.isPending ? "Cruzando…" : "Buscar em domínios oficiais"}<Sparkles size={14} /></button>
+      <button className="button button-outline button-small full-width" disabled={pipeline.isPending} onClick={() => pipeline.mutate({ caseId })}>{pipeline.isPending ? "Rodando fluxo…" : "Rodar fluxo de apuração"}<Layers3 size={14} /></button>
       {pipelineSteps.length > 0 && <div className="pipeline-steps">{pipelineSteps.map(step => <div className={`pipeline-step pipeline-${step.status}`} key={step.step}><strong>{step.step}</strong><span>{step.detail}</span></div>)}</div>}
       {factCheckHits.length > 0 && <div className="historical-results">{factCheckHits.map(hit => <div className="historical-result" key={hit.url}><div><span>{hit.publisherName}{hit.textualRating ? ` · ${hit.textualRating}` : ""}</span><strong>{hit.title}</strong><small>{hit.url}</small></div><div className="historical-result-actions"><a href={hit.url} target="_blank" rel="noreferrer" className="registry-probe">Abrir</a><button className="registry-probe" disabled={captureFinding.isPending} onClick={() => captureFinding.mutate({ caseId, title: hit.title.slice(0, 500), url: hit.url, sourceName: hit.publisherName, sourceType: "reportagem", context: `Checagem já publicada (ClaimReview) por ${hit.publisherName}${hit.textualRating ? `, classificada como "${hit.textualRating}"` : ""}. Alegação avaliada: "${hit.claimText}". Abra e confira antes de citar; a classificação do veículo não é o veredito deste caso.`, excerpt: "", relation: hit.suggestedRelation })}>Registrar</button></div></div>)}</div>}
       {results.length > 0 && <div className="historical-results">{results.map(result => <div className="historical-result" key={result.url}><div><span>{result.publisher} · {result.publishedAt || "data não informada"}</span><strong>{result.title}</strong><small>{result.url}</small></div><div className="historical-result-actions"><a href={result.url} target="_blank" rel="noreferrer" className="registry-probe">Abrir</a><button className="registry-probe" disabled={captureFinding.isPending} onClick={() => captureFinding.mutate({ caseId, findingId: result.findingId ?? undefined, title: result.title, url: result.url, sourceName: result.publisher, sourceType: "oficial", context: `Encontrado via cruzamento automático com fontes oficiais (${result.discoverySource}). A página deve ser aberta e conferida editorialmente antes de ser citada. URL de descoberta: ${result.discoveryUrl}`, excerpt: "", relation: "contextualiza" })}>Registrar</button></div></div>)}</div>}

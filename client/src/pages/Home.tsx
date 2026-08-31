@@ -123,6 +123,7 @@ export default function Home() {
             <span>verifica<span>fonte</span></span>
           </Link>
           <nav className="desktop-nav" aria-label="Navegação principal">
+            <a href="#onde-nasce">Onde começa</a>
             <a href="#como-funciona">Como funciona</a>
             <a href="#acervo">Acervo público</a>
             <a href="#metodo">Método</a>
@@ -134,6 +135,7 @@ export default function Home() {
           </div>
         </div>
         {menuOpen && <nav id="menu-mobile" className="mobile-nav" aria-label="Navegação">
+          <a href="#onde-nasce" onClick={() => setMenuOpen(false)}>Onde começa</a>
           <a href="#como-funciona" onClick={() => setMenuOpen(false)}>Como funciona</a>
           <a href="#acervo" onClick={() => setMenuOpen(false)}>Acervo público</a>
           <a href="#metodo" onClick={() => setMenuOpen(false)}>Método</a>
@@ -147,24 +149,24 @@ export default function Home() {
           <div className="hero-grid"></div>
           <div className="hero-inner">
             <div className="hero-copy">
-              <div className="eyebrow light"><span className="eyebrow-dot"></span> Jornalismo de evidências</div>
-              <h1>Antes de chamar de falso, <em>vamos à fonte.</em></h1>
-              <p className="hero-lede">Transformamos alegações em casos verificáveis — com fontes rastreáveis, contexto e uma revisão editorial que deixa claro o que sabemos, o que diverge e o que ainda falta investigar.</p>
+              <div className="eyebrow light"><span className="eyebrow-dot"></span> Do post viral ao caso auditável</div>
+              <h1>O que circulou na rede <em>não precisa virar verdade.</em></h1>
+              <p className="hero-lede">Print do Instagram, corte do TikTok, link do Facebook, áudio de WhatsApp ou notícia solta: transformamos o que viralizou em caso com prova original, fonte rastreável e decisão editorial humana — sem chatbot no lugar do veredito.</p>
               <div className="hero-actions">
-                <button className="button button-accent" onClick={openCreate}>Cadastrar alegação <ArrowUpRight size={17} /></button>
-                <a className="text-link-light" href="#acervo">Explorar casos publicados <ChevronRight size={15} /></a>
+                <button className="button button-accent" onClick={openCreate}>Apurar uma alegação <ArrowUpRight size={17} /></button>
+                <a className="text-link-light" href="#acervo">Ver casos publicados <ChevronRight size={15} /></a>
               </div>
-              <div className="hero-note"><ShieldCheck size={16} /> O veredito nunca é decidido por um modelo.</div>
+              <div className="hero-note"><ShieldCheck size={16} /> IA prepara o material. Quem assina a publicação é a redação.</div>
             </div>
             <div className="hero-annotation" aria-hidden="true">
-              <div className="annotation-card annotation-card-top"><span>01</span><strong>alegação</strong><small>o que foi dito</small></div>
+              <div className="annotation-card annotation-card-top"><span>01</span><strong>viral</strong><small>print, post, corte, link</small></div>
               <div className="annotation-line"></div>
-              <div className="annotation-card annotation-card-middle"><span>02</span><strong>evidência</strong><small>o que pode ser consultado</small></div>
+              <div className="annotation-card annotation-card-middle"><span>02</span><strong>prova</strong><small>original × distorção</small></div>
               <div className="annotation-line"></div>
-              <div className="annotation-card annotation-card-bottom"><span>03</span><strong>revisão</strong><small>o que está pronto para publicar</small></div>
+              <div className="annotation-card annotation-card-bottom"><span>03</span><strong>laudo</strong><small>revisão humana publica</small></div>
             </div>
           </div>
-          <div className="hero-footer"><span>PLATAFORMA DE CHECAGEM</span><span className="hero-footer-rule"></span><span>RASTREABILIDADE EM PRIMEIRO LUGAR</span></div>
+          <div className="hero-footer"><span>BANCADA EDITORIAL</span><span className="hero-footer-rule"></span><span>REDES · FONTES OFICIAIS · CONTEXTO</span></div>
         </section>
 
         <section className="stats-strip" aria-label="Indicadores da plataforma">
@@ -172,27 +174,42 @@ export default function Home() {
             <div className="stat-item"><strong>{stats?.total ?? 0}</strong><span>casos registrados</span></div>
             <div className="stat-item"><strong>{stats?.published ?? 0}</strong><span>publicados</span></div>
             <div className="stat-item"><strong>{stats?.evidenceCount ?? 0}</strong><span>evidências catalogadas</span></div>
-            <div className="stat-statement"><span className="accent-line"></span><p>Transparência não é apenas uma etiqueta. É mostrar o caminho.</p></div>
+            <div className="stat-statement"><span className="accent-line"></span><p>Fake news começa no feed. A apuração termina com fonte e assinatura.</p></div>
           </div>
         </section>
 
-        <section className="section-light workflow-section" id="como-funciona">
+        
+        <section className="section-paper origins-section" id="onde-nasce" aria-label="Onde a desinformação começa">
           <div className="section-inner">
             <div className="section-intro split-intro">
-              <div><div className="eyebrow">O fluxo</div><h2>Da afirmação ao caso <em>auditável.</em></h2></div>
-              <p>O VerificaFonte separa o que foi dito, o que foi encontrado e o que uma equipe editorial decidiu publicar. Assim, cada conclusão tem contexto — e cada dúvida fica visível.</p>
+              <div><div className="eyebrow">Abrangência</div><h2>Nascida no feed — <em>não só na planilha.</em></h2></div>
+              <p>Indicadores econômicos oficiais entram quando a postagem cita número. O núcleo do produto é o que viraliza: fala cortada, print sem data, boato de saúde, eleição, crime ou celebridade.</p>
+            </div>
+            <div className="origins-grid">
+              <article className="origin-card"><span className="origin-tag">Rede</span><h3>Print, post e corte</h3><p>Instagram, Facebook, TikTok, X e WhatsApp. Entrada por texto, link ou imagem — o que a pessoa colou, não vigilância de perfil.</p></article>
+              <article className="origin-card"><span className="origin-tag">Contexto</span><h3>Original × distorção</h3><p>Indexe o vídeo ou post integral com o instante da fala e descreva o que a versão viral omitiu ou refraseou.</p></article>
+              <article className="origin-card"><span className="origin-tag">Fontes</span><h3>Oficial, checagem, reportagem</h3><p>BCB, IBGE e outros órgãos quando houver dado estruturado; ClaimReview e releases para o restante. O editor decide o peso.</p></article>
+              <article className="origin-card"><span className="origin-tag">Assinatura</span><h3>Humano no veredito</h3><p>Revisão independente obrigatória para publicar. A máquina acelera a mesa; a marca responde pelo laudo.</p></article>
+            </div>
+          </div>
+        </section>
+<section className="section-light workflow-section" id="como-funciona">
+          <div className="section-inner">
+            <div className="section-intro split-intro">
+              <div><div className="eyebrow">O fluxo</div><h2>Do que viralizou ao caso <em>auditável.</em></h2></div>
+              <p>Alegações nascem em feed, grupo e manchete. O VerificaFonte separa o que circulou, o que de fato foi dito ou publicado, e o que a redação decide assinar — com trilha que o leitor pode reabrir.</p>
             </div>
             <div className="workflow-grid">
-              <article className="workflow-card"><span className="card-number">01</span><FileSearch size={24} /><h3>Recorte a alegação</h3><p>Cadastre o texto original ou o link onde a afirmação apareceu. Uma alegação por caso, com escopo claro.</p><span className="card-caption">ENTRADA E CONTEXTO</span></article>
-              <article className="workflow-card"><span className="card-number">02</span><BookOpen size={24} /><h3>Mapeie as fontes</h3><p>Registre documentos oficiais, reportagens e outras evidências com data, origem, link e relação com a alegação.</p><span className="card-caption">TRILHA DE EVIDÊNCIAS</span></article>
-              <article className="workflow-card"><span className="card-number">03</span><ShieldCheck size={24} /><h3>Revise antes de publicar</h3><p>O modelo organiza o material. A equipe humana confronta, contextualiza e aprova — ou pede ajustes antes da publicação.</p><span className="card-caption">CONTROLE EDITORIAL</span></article>
+              <article className="workflow-card"><span className="card-number">01</span><FileSearch size={24} /><h3>Capture o que circulou</h3><p>Cole o texto, o link do post ou o print do Instagram, Facebook, TikTok ou WhatsApp. Uma alegação por caso, com escopo claro.</p><span className="card-caption">ENTRADA MULTIMODAL</span></article>
+              <article className="workflow-card"><span className="card-number">02</span><BookOpen size={24} /><h3>Ancore a prova e as fontes</h3><p>Indexe o momento original (vídeo, post, documento), descreva a distorção e cruze com fontes oficiais, reportagens e checagens já publicadas.</p><span className="card-caption">ORIGINAL × DISTORÇÃO</span></article>
+              <article className="workflow-card"><span className="card-number">03</span><ShieldCheck size={24} /><h3>Revise antes de publicar</h3><p>Agentes e APIs organizam o material. A equipe humana confronta, contextualiza e aprova — ou pede ajustes. O modelo não escolhe o veredito.</p><span className="card-caption">CONTROLE EDITORIAL</span></article>
             </div>
           </div>
         </section>
 
         <section className="section-paper method-section" id="metodo">
           <div className="section-inner method-layout">
-            <div className="method-copy"><div className="eyebrow">O que o status significa</div><h2>Um resultado não é uma <em>caixa-preta.</em></h2><p>Os rótulos descrevem o estado da apuração, não substituem a leitura das fontes. A página pública sempre mostra a justificativa, a data de consulta e os limites do que foi encontrado.</p><button className="button button-dark" onClick={openCreate}>Começar um caso <ArrowUpRight size={16} /></button></div>
+            <div className="method-copy"><div className="eyebrow">O que o status significa</div><h2>Um resultado não é uma <em>caixa-preta.</em></h2><p>Serve para fala fora de contexto, número oficial, saúde, eleição ou boato de rede. Os rótulos descrevem o estado da apuração; a página pública mostra justificativa, fontes e, quando houver, a prova original ao lado da versão viral.</p><button className="button button-dark" onClick={openCreate}>Começar um caso <ArrowUpRight size={16} /></button></div>
             <div className="status-list">
               <div className="status-row"><span className="status-pill status-confirmed"><Check size={13} /> Confirmado por fontes</span><p>Há fontes independentes ou primárias que sustentam o núcleo verificável da alegação.</p></div>
               <div className="status-row"><span className="status-pill status-divergent"><CircleHelp size={13} /> Divergente / contestável</span><p>As evidências entram em conflito, ou a afirmação depende de uma interpretação discutível.</p></div>
@@ -204,7 +221,7 @@ export default function Home() {
 
         <section className="section-light archive-section" id="acervo">
           <div className="section-inner">
-            <div className="section-heading-row"><div><div className="eyebrow">Acervo público</div><h2>Casos que deixam <em>pistas.</em></h2></div><span className="archive-count">{publishedCases?.length ?? 0} publicados <ArrowUpRight size={15} /></span></div>
+            <div className="section-heading-row"><div><div className="eyebrow">Acervo público</div><h2>Casos com trilha, não só <em>rótulo.</em></h2></div><span className="archive-count">{publishedCases?.length ?? 0} publicados <ArrowUpRight size={15} /></span></div>
             {isLoading ? <div className="archive-empty"><div className="loading-bar"></div><div className="loading-bar short"></div></div> : publishedCases?.length ? <div className="case-grid">{publishedCases.map(item => <Link key={item.id} href={`/caso/${item.slug}`} className="case-card"><div className="case-card-top"><span className={`status-pill ${statusTone[item.status]}`}>{statusLabels[item.status]}</span><span>{formatDate(item.publishedAt)}</span></div><h3>{item.claimText}</h3><div className="case-card-bottom"><span>Ver trilha completa</span><ArrowUpRight size={15} /></div></Link>)}</div> : <div className="archive-empty"><div className="empty-icon"><LockKeyhole size={18} /></div><div><h3>O acervo começa com uma decisão revisada.</h3><p>Ainda não há casos publicados. Cadastre uma alegação para iniciar o primeiro fluxo editorial.</p></div><button className="button button-dark button-small" onClick={openCreate}>Nova alegação <Plus size={15} /></button></div>}
           </div>
         </section>
@@ -228,18 +245,18 @@ export default function Home() {
             </div>
             {intakeTab === "link" && (
               <div className="intake-panel">
-                <label>Link do post, notícia ou mensagem<input type="url" value={linkInput} onChange={event => setLinkInput(event.target.value)} placeholder="https://..." /></label>
+                <label>Link do post, notícia ou mensagem<input type="url" value={linkInput} onChange={event => setLinkInput(event.target.value)} placeholder="https://… Facebook, Instagram, site, YouTube…" /></label>
                 <button type="button" className="button button-outline button-small" disabled={!linkInput.trim() || extractFromUrl.isPending} onClick={handleExtractLink}>{extractFromUrl.isPending ? "Extraindo…" : "Extrair alegação"} <Sparkles size={14} /></button>
               </div>
             )}
             {intakeTab === "print" && (
               <div className="intake-panel">
-                <label>Print do post, comentário ou mensagem<input type="file" accept="image/png,image/jpeg,image/gif,image/webp" onChange={handleImageChange} /></label>
+                <label>Print do feed, stories, comentário ou grupo<input type="file" accept="image/png,image/jpeg,image/gif,image/webp" onChange={handleImageChange} /></label>
                 {imageName && <span className="intake-file-name">{imageName}</span>}
                 <button type="button" className="button button-outline button-small" disabled={!imageDataUrl || extractFromImage.isPending} onClick={handleExtractImage}>{extractFromImage.isPending ? "Extraindo…" : "Extrair alegação"} <Sparkles size={14} /></button>
               </div>
             )}
-            <label>Texto da alegação<textarea value={claim} onChange={event => setClaim(event.target.value)} placeholder="Ex.: uma afirmação que você quer verificar, com o máximo de precisão possível" rows={5} /></label>
+            <label>Texto da alegação<textarea value={claim} onChange={event => setClaim(event.target.value)} placeholder="Ex.: no TikTok circula que fulano disse X; no print do Instagram afirma-se que o IPCA foi Y…" rows={5} /></label>
             <label>URL de origem <span className="optional">opcional</span><input type="url" value={claimUrl} onChange={event => setClaimUrl(event.target.value)} placeholder="https://..." /></label>
             <div className="modal-actions">
               <button className="button button-ghost-dark" onClick={() => { setShowCreate(false); resetIntake(); }}>Cancelar</button>
