@@ -1055,14 +1055,17 @@ export const appRouter = router({
       .input(z.object({ caseId: z.number().int().positive() }))
       .query(({ input }) => listSourceMoments(input.caseId)),
     register: editorProcedure.input(sourceMomentInputSchema).mutation(async ({ input, ctx }) => {
-      const bundle = await getCaseBundle(input.caseId);
-      if (!bundle.caseRecord) throw new TRPCError({ code: "NOT_FOUND", message: "Caso não encontrado" });
+      // Valida a entrada antes de consultar o banco: entrada malformada não
+      // precisa de ida ao MySQL, e a ordem fica igual à de cases.create e
+      // evidences.add.
       if (!isPublicHttpsUrl(input.url)) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "A URL do momento precisa ser HTTPS pública (sem localhost ou IP privado).",
         });
       }
+      const bundle = await getCaseBundle(input.caseId);
+      if (!bundle.caseRecord) throw new TRPCError({ code: "NOT_FOUND", message: "Caso não encontrado" });
       if (input.timestampStartSec != null && input.timestampEndSec != null && input.timestampEndSec < input.timestampStartSec) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "O fim do trecho deve ser posterior ao início." });
       }
