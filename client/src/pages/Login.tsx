@@ -23,6 +23,9 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const utils = trpc.useUtils();
+  // Oferecer um método de login que o ambiente não tem termina numa página de
+  // erro — na tela cuja função é justamente deixar claro como entrar.
+  const { data: authMethods } = trpc.system.authMethods.useQuery();
 
   // Quem clicou em "Nova alegação" deslogado volta para a criação depois de
   // entrar, em vez de ser largado no painel sem saber o que aconteceu.
@@ -69,7 +72,11 @@ export default function Login() {
         </div>
         <div className="eyebrow">{mode === "login" ? "Área editorial" : "Nova conta"}</div>
         <h1>{mode === "login" ? "Entre para abrir a bancada." : "Crie seu acesso editorial."}</h1>
-        <p>{mode === "login" ? "Use o e-mail e a senha da sua conta. Se você entrou com o Google antes, use o Google de novo — são a mesma pessoa, contas diferentes." : "O cadastro é aberto e leva um minuto. A conta nova ainda não abre a bancada: um administrador libera o acesso editorial depois, procurando você por este e-mail."}</p>
+        <p>{mode === "login"
+          ? authMethods?.google
+            ? "Use o e-mail e a senha da sua conta. Se você entrou com o Google antes, use o Google de novo — são a mesma pessoa, contas diferentes."
+            : "Use o e-mail e a senha da sua conta."
+          : "O cadastro é aberto e leva um minuto. A conta nova ainda não abre a bancada: um administrador libera o acesso editorial depois, procurando você por este e-mail."}</p>
         <form
           className="auth-form"
           onSubmit={event => {
@@ -96,10 +103,12 @@ export default function Login() {
             <ArrowUpRight size={16} />
           </button>
         </form>
-        <div className="auth-divider"><span>ou</span></div>
-        <a className="button button-outline auth-google" href={next ? `/api/oauth/google/start?next=${encodeURIComponent(next)}` : "/api/oauth/google/start"}>
-          <GoogleIcon /> Continuar com Google
-        </a>
+        {authMethods?.google && <>
+          <div className="auth-divider"><span>ou</span></div>
+          <a className="button button-outline auth-google" href={next ? `/api/oauth/google/start?next=${encodeURIComponent(next)}` : "/api/oauth/google/start"}>
+            <GoogleIcon /> Continuar com Google
+          </a>
+        </>}
         <button className="text-action auth-switch" onClick={() => setMode(mode === "login" ? "register" : "login")}>
           {mode === "login" ? "Não tem conta? Criar uma" : "Já tem conta? Entrar"}
         </button>

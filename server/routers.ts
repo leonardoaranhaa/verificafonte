@@ -2,6 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 import { createSessionToken } from "./_core/auth";
+import { ENV } from "./_core/env";
 import { extractClaimFromImage, extractClaimFromUrl } from "./_core/intake";
 import { invokeLLM, isAnthropicConfigured, listLLMModels } from "./_core/llm";
 import { emailOpenId, hashPassword, normalizeEmail, verifyPassword } from "./_core/password";
@@ -386,6 +387,16 @@ export const appRouter = router({
   }),
   system: router({
     health: publicProcedure.query(() => ({ ok: true })),
+    /**
+     * Quais formas de entrar existem neste ambiente. Público de propósito: a
+     * tela de login precisa disso antes de haver sessão.
+     *
+     * Sem isto a página oferecia "Continuar com Google" mesmo sem
+     * GOOGLE_CLIENT_ID, e o clique terminava numa página 500 de texto cru —
+     * na tela cuja função é justamente deixar claro como entrar. O que se
+     * revela aqui já era observável clicando no botão.
+     */
+    authMethods: publicProcedure.query(() => ({ google: Boolean(ENV.googleClientId && ENV.googleClientSecret) })),
     /**
      * Prontidão das integrações — ponto único de verdade para o painel avisar
      * o que está configurado antes de o editor começar, em vez de a falta de
