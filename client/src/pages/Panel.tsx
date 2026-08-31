@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
-import { AlertCircle, ArrowLeft, ArrowUpRight, Bot, Check, ChevronRight, Clock3, FileCheck2, FilePlus2, Fingerprint, GitCompareArrows, Layers3, Link2, LogIn, Menu, Plus, Send, ShieldCheck, Sparkles, UserRound, X } from "lucide-react";
+import { AlertCircle, ArrowLeft, ArrowUpRight, Bot, Check, ChevronRight, Clock3, FileCheck2, FilePlus2, Fingerprint, GitCompareArrows, Layers3, Link2, LogIn, LogOut, Menu, Plus, Send, ShieldCheck, Sparkles, UserRound, X } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
@@ -14,13 +14,55 @@ function formatDate(value: Date | string | null | undefined) {
   return new Date(value).toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" });
 }
 
+/**
+ * Encerrar sessão era a única operação de autenticação sem nenhuma porta na
+ * interface: existia no servidor e no hook, e não havia botão em lugar
+ * nenhum. Quem entrasse com a conta errada ficava preso nela.
+ */
+async function signOut(logout: () => Promise<void>, setLocation: (path: string) => void) {
+  try {
+    await logout();
+    toast.success("Sessão encerrada.");
+  } catch {
+    toast.error("Não foi possível encerrar a sessão. Tente de novo.");
+    return;
+  }
+  setLocation("/");
+}
+
+/**
+ * Cadastro aberto significa que a conta existe e mesmo assim não abre a
+ * bancada. Sem dizer o que falta e sem oferecer troca de conta, esta tela era
+ * um beco: o usuário lia "peça a um administrador" e não tinha o que fazer.
+ */
+function PendingAccessGate({ email, onSignOut }: { email: string; onSignOut: () => Promise<void> }) {
+  const [, setLocation] = useLocation();
+  return <div className="auth-gate">
+    <Link href="/" className="brand"><span className="brand-mark"><Fingerprint size={18} /></span><span>verifica<span>fonte</span></span></Link>
+    <div className="auth-card">
+      <div className="auth-icon"><ShieldCheck size={22} /></div>
+      <div className="eyebrow">Login feito — acesso editorial pendente</div>
+      <h1>Sua conta existe, mas ainda não é da redação.</h1>
+      <p>Não é erro de senha: você está autenticado. A bancada guarda apurações em andamento, por isso o acesso é concedido conta a conta por um administrador.</p>
+      <div className="access-identity">
+        <span>Conta conectada</span>
+        <strong>{email}</strong>
+        <small>É este endereço que o administrador procura em Equipe e acessos para promover você a Editor.</small>
+      </div>
+      <Link href="/" className="button button-dark">Ver o acervo público <ArrowUpRight size={16} /></Link>
+      <button type="button" className="text-action auth-switch" onClick={() => { void signOut(onSignOut, setLocation); }}>Sair e entrar com outra conta</button>
+      <Link href="/" className="back-link"><ArrowLeft size={14} /> Voltar para a página pública</Link>
+    </div>
+  </div>;
+}
+
 function readCaseId() {
   if (typeof window === "undefined") return 0;
   return Number(new URLSearchParams(window.location.search).get("caseId")) || 0;
 }
 
 export default function Panel() {
-  const { user, loading } = useAuth();
+  const { user, loading, logout } = useAuth();
   const [, setLocation] = useLocation();
   const caseId = readCaseId();
   const [activeTab, setActiveTab] = useState<"workspace" | "review" | "orchestration" | "equipe">("workspace");
@@ -45,9 +87,9 @@ export default function Panel() {
   }, [bundle?.evidenceRows]);
 
   if (loading) return <div className="panel-loading"><div className="loading-orbit"></div><p>Carregando espaço editorial…</p></div>;
-  if (!user) return <div className="auth-gate"><Link href="/" className="brand"><span className="brand-mark"><Fingerprint size={18} /></span><span>verifica<span>fonte</span></span></Link><div className="auth-card"><div className="auth-icon"><LogIn size={22} /></div><div className="eyebrow">Área editorial</div><h1>Entre para abrir a bancada de checagem.</h1><p>O painel reúne rascunhos, evidências e revisões. O conteúdo só aparece no acervo depois de uma decisão editorial registrada.</p><Link href="/entrar" className="button button-dark">Entrar com minha conta <ArrowUpRight size={16} /></Link><Link href="/" className="back-link"><ArrowLeft size={14} /> Voltar para a página pública</Link></div></div>;
+  if (!user) return <div className="auth-gate"><Link href="/" className="brand"><span className="brand-mark"><Fingerprint size={18} /></span><span>verifica<span>fonte</span></span></Link><div className="auth-card"><div className="auth-icon"><LogIn size={22} /></div><div className="eyebrow">Área editorial</div><h1>Entre para abrir a bancada de checagem.</h1><p>O painel reúne rascunhos, evidências e revisões. O conteúdo só aparece no acervo depois de uma decisão editorial registrada.</p><Link href="/entrar" className="button button-dark">Entrar com minha conta <ArrowUpRight size={16} /></Link><Link href="/entrar" className="text-action auth-switch">Ainda não tem conta? Criar uma</Link><Link href="/" className="back-link"><ArrowLeft size={14} /> Voltar para a página pública</Link></div></div>;
   // O cadastro é aberto: estar logado não dá acesso à bancada.
-  if (user.role !== "editor" && user.role !== "admin") return <div className="auth-gate"><Link href="/" className="brand"><span className="brand-mark"><Fingerprint size={18} /></span><span>verifica<span>fonte</span></span></Link><div className="auth-card"><div className="auth-icon"><ShieldCheck size={22} /></div><div className="eyebrow">Acesso editorial pendente</div><h1>Sua conta ainda não faz parte da redação.</h1><p>A bancada guarda apurações em andamento, por isso o acesso é concedido pessoa a pessoa. Peça a um administrador para liberar seu acesso — ele encontra sua conta pelo e-mail <strong>{user.email || user.openId}</strong>.</p><Link href="/" className="button button-dark">Ver o acervo público <ArrowUpRight size={16} /></Link><Link href="/" className="back-link"><ArrowLeft size={14} /> Voltar para a página pública</Link></div></div>;
+  if (user.role !== "editor" && user.role !== "admin") return <PendingAccessGate email={user.email || user.openId} onSignOut={logout} />;
 
   return <div className="panel-shell">
     <aside id="panel-nav" className={`panel-sidebar ${navOpen ? "nav-open" : ""}`}>
@@ -57,7 +99,7 @@ export default function Panel() {
       <button className={`sidebar-item ${activeTab === "review" ? "active" : ""}`} onClick={() => { setActiveTab("review"); setNavOpen(false); }}><FileCheck2 size={17} /><span>Revisão editorial</span></button>
       <button className={`sidebar-item ${activeTab === "orchestration" ? "active" : ""}`} onClick={() => { setActiveTab("orchestration"); setNavOpen(false); }}><Bot size={17} /><span>Orquestração</span><span className="live-dot"></span></button>
       {user.role === "admin" && <button className={`sidebar-item ${activeTab === "equipe" ? "active" : ""}`} onClick={() => { setActiveTab("equipe"); setNavOpen(false); }}><UserRound size={17} /><span>Equipe</span></button>}
-      <div className="sidebar-bottom"><div className="sidebar-rule"></div><Link href="/" className="sidebar-item"><ArrowLeft size={17} /><span>Voltar ao público</span></Link><div className="user-chip"><span className="user-avatar"><UserRound size={15} /></span><span><strong>{user.name || "Editor"}</strong><small>{user.role === "admin" ? "Administrador" : user.role === "editor" ? "Editor" : "Sem acesso editorial"}</small></span></div></div>
+      <div className="sidebar-bottom"><div className="sidebar-rule"></div><Link href="/" className="sidebar-item"><ArrowLeft size={17} /><span>Voltar ao público</span></Link><div className="user-chip"><span className="user-avatar"><UserRound size={15} /></span><span><strong>{user.name || "Editor"}</strong><small>{user.role === "admin" ? "Administrador" : user.role === "editor" ? "Editor" : "Sem acesso editorial"}</small></span><button type="button" className="user-chip-signout" onClick={() => { void signOut(logout, setLocation); }} aria-label="Sair da conta" title="Sair da conta"><LogOut size={15} /></button></div></div>
     </aside>
     <main className="panel-main">
       <div className="panel-topbar"><div><span className="panel-kicker">ESPAÇO DE TRABALHO</span><h1>{activeTab === "workspace" ? "Casos de verificação" : activeTab === "review" ? "Revisão editorial" : activeTab === "equipe" ? "Equipe e acessos" : "Orquestração"}</h1></div><button className="button button-accent button-small" onClick={() => setLocation("/?novo=1")}><Plus size={15} /> Nova alegação</button></div>

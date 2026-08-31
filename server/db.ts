@@ -13,7 +13,7 @@ import {
   InsertUser,
   users,
 } from "../drizzle/schema";
-import { ENV } from "./_core/env";
+import { isOwnerAccount } from "./_core/owner";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -29,7 +29,11 @@ export async function getDb() {
   return _db;
 }
 
-export async function upsertUser(user: InsertUser): Promise<void> {
+/**
+ * `emailVerified` vem do provedor de login (hoje o Google) e só serve para
+ * reconhecer o dono da instalação pelo e-mail — ver isOwnerAccount.
+ */
+export async function upsertUser(user: InsertUser, options?: { emailVerified?: boolean }): Promise<void> {
   if (!user.openId) throw new Error("User openId is required for upsert");
   const db = await getDb();
   if (!db) return;
@@ -50,7 +54,7 @@ export async function upsertUser(user: InsertUser): Promise<void> {
   if (user.role !== undefined) {
     values.role = user.role;
     updateSet.role = user.role;
-  } else if (user.openId === ENV.ownerOpenId) {
+  } else if (isOwnerAccount({ openId: user.openId, email: user.email, emailVerified: options?.emailVerified })) {
     values.role = "admin";
     updateSet.role = "admin";
   }

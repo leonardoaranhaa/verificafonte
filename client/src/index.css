@@ -93,6 +93,35 @@ a { color: inherit; text-decoration: none; }
 .header-link { display: inline-flex; align-items: center; gap: 7px; color: rgba(246,244,239,.7); font-size: 12px; }
 .header-link:hover { color: white; }
 .mobile-menu { display: none; border: 0; background: transparent; color: var(--paper); }
+/* Estado da sessão no cabeçalho público. O site não tinha nenhum sinal de
+   autenticação: nem entrada, nem identidade, nem saída. */
+.auth-actions { display: flex; align-items: center; gap: 15px; }
+.auth-actions-placeholder { display: block; width: 96px; height: 30px; }
+.header-user { display: inline-flex; align-items: center; gap: 9px; color: rgba(246,244,239,.82); }
+.header-user:hover { color: white; }
+.header-user-avatar { display: grid; place-items: center; width: 28px; height: 28px; border: 1px solid rgba(246,244,239,.24); color: var(--sage); }
+.header-user-text strong, .header-user-text small { display: block; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.header-user-text strong { font-size: 11px; font-weight: 700; }
+.header-user-text small { margin-top: 3px; color: rgba(246,244,239,.45); font-family: var(--font-mono); font-size: 8px; letter-spacing: .06em; text-transform: uppercase; }
+.header-link { border: 0; background: transparent; cursor: pointer; }
+.mobile-nav-auth { margin-top: 10px; padding-top: 12px; border-top: 1px solid rgba(246,244,239,.12); }
+.mobile-nav-auth .auth-actions { justify-content: space-between; }
+.mobile-nav-auth .header-user-text strong { font-size: 13px; }
+.mobile-nav-auth .button { width: 100%; justify-content: center; }
+/* Sair fica ao lado da identidade, onde se procura por ela. */
+.user-chip-signout { display: grid; place-items: center; width: 30px; height: 30px; margin-left: auto; border: 1px solid rgba(246,244,239,.18); background: transparent; color: rgba(246,244,239,.55); cursor: pointer; }
+.user-chip-signout:hover { border-color: var(--coral); color: var(--coral); }
+/* Identidade da conta nas telas de acesso pendente: o e-mail é a informação
+   acionável, é por ele que o administrador acha a pessoa. */
+.access-identity { margin: 4px 0 26px; padding: 15px 17px; border-left: 2px solid var(--coral); background: rgba(238,118,91,.08); }
+.access-identity span { display: block; color: var(--slate); font-family: var(--font-mono); font-size: 8px; letter-spacing: .1em; text-transform: uppercase; }
+.access-identity strong { display: block; margin: 7px 0 6px; overflow-wrap: anywhere; font-size: 15px; }
+.access-identity small { display: block; color: var(--slate); font-size: 11px; line-height: 1.5; }
+.auth-card .access-identity { border-left-color: var(--coral); background: rgba(238,118,91,.12); }
+.auth-card .access-identity span, .auth-card .access-identity small { color: rgba(246,244,239,.55); }
+.auth-card .access-identity strong { color: var(--paper); }
+.access-modal-icon { display: grid; place-items: center; width: 42px; height: 42px; margin-bottom: 22px; background: var(--coral); color: white; }
+.access-modal .modal-actions { margin-top: 4px; }
 /* Painel de navegação do cabeçalho público no mobile. Antes o hamburger não
    tinha ação e, abaixo de 720px, nem o link de entrar aparecia: no celular
    não havia caminho para o painel editorial. */
@@ -521,6 +550,9 @@ a { color: inherit; text-decoration: none; }
   .desktop-nav { display: none; }
   .mobile-menu { display: block; }
   .mobile-nav { display: flex; }
+  /* A partir daqui quem navega é o menu: manter as mesmas ações no cabeçalho
+     mostraria entrar/sair duas vezes com o painel aberto. */
+  .header-actions > .header-link, .header-actions > .auth-actions, .header-actions > .button { display: none; }
   /* O cabeçalho deixa de ser absoluto quando o menu abre, para o painel
      empurrar o conteúdo em vez de flutuar por cima do hero. */
   .site-header:has(.mobile-nav) { position: relative; background: var(--ink); }
@@ -537,8 +569,6 @@ a { color: inherit; text-decoration: none; }
 @media (max-width: 720px) {
   .header-inner, .hero-inner, .hero-footer, .stats-inner, .section-inner, .public-case-header-inner, .public-case-container, .mobile-nav { width: calc(100% - 36px); }
   .header-inner { height: 68px; }
-  .header-actions .header-link { display: none; }
-  .header-actions .button { display: none; }
   .hero-section { min-height: 690px; }
   .hero-inner { display: block; min-height: 620px; padding-top: 153px; }
   .hero-copy { width: 100%; }
