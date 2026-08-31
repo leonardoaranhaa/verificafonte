@@ -635,3 +635,48 @@ a { color: inherit; text-decoration: none; }
 .historical-result strong{font:600 .92rem/1.25 DM Sans,sans-serif;color:#142235}
 .historical-result-actions{display:flex;align-items:center;gap:.35rem;flex:none}
 @media(max-width:760px){.historical-form{grid-template-columns:1fr 1fr}.historical-form input:first-child{grid-column:1/-1}.historical-form button{grid-column:1/-1}.historical-result{display:grid}.historical-result-actions{justify-content:flex-start}}
+
+
+/* --- Abrangência / origem social --- */
+.origins-section {
+  padding: clamp(3rem, 6vw, 5rem) 0;
+}
+.origins-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+  margin-top: 1.75rem;
+}
+.origin-card {
+  border: 1px solid var(--line, rgba(0,0,0,0.12));
+  background: var(--paper-bright, #fffdf8);
+  padding: 1.15rem 1.1rem 1.25rem;
+  min-height: 10.5rem;
+}
+.origin-tag {
+  display: inline-block;
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--accent, #c45c26);
+  margin-bottom: 0.55rem;
+}
+.origin-card h3 {
+  font-family: var(--font-serif, Georgia, serif);
+  font-size: 1.15rem;
+  margin: 0 0 0.45rem;
+  line-height: 1.25;
+}
+.origin-card p {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  color: var(--muted, #5c584f);
+}
+@media (max-width: 960px) {
+  .origins-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  .origins-grid { grid-template-columns: 1fr; }
+}

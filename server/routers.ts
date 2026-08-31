@@ -491,11 +491,18 @@ export const appRouter = router({
     create: editorProcedure
       .input(claimInputSchema)
       .mutation(async ({ input, ctx }) => {
+        const claimUrl = cleanOptional(input.claimUrl);
+        if (claimUrl && !isPublicHttpsUrl(claimUrl)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "A URL de origem precisa ser HTTPS pública (sem localhost ou IP privado).",
+          });
+        }
         const base = input.claimText.toLowerCase().replace(/[^a-z0-9à-ú]+/gi, "-").replace(/(^-|-$)/g, "").slice(0, 110);
         return createCase({
           slug: `${base || "caso"}-${nanoid(7).toLowerCase()}`,
           claimText: input.claimText.trim(),
-          claimUrl: cleanOptional(input.claimUrl),
+          claimUrl,
           createdBy: ctx.user.id,
         });
       }),
@@ -521,11 +528,19 @@ export const appRouter = router({
   evidences: router({
     add: editorProcedure
       .input(evidenceInputSchema)
-      .mutation(({ input }) => addEvidence({
-        ...input,
-        sourceDate: input.sourceDate ? new Date(input.sourceDate) : undefined,
-        excerpt: cleanOptional(input.excerpt),
-      })),
+      .mutation(({ input }) => {
+        if (!isPublicHttpsUrl(input.url)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "A URL da evidência precisa ser HTTPS pública (sem localhost ou IP privado).",
+          });
+        }
+        return addEvidence({
+          ...input,
+          sourceDate: input.sourceDate ? new Date(input.sourceDate) : undefined,
+          excerpt: cleanOptional(input.excerpt),
+        });
+      }),
   }),
   reviews: router({
     submit: editorProcedure
@@ -569,11 +584,18 @@ export const appRouter = router({
     }),
     probe: editorProcedure.input(sourceProbeInputSchema).mutation(async ({ input }) => {
       if (!isPublicHttpsUrl(input.endpoint)) throw new TRPCError({ code: "BAD_REQUEST", message: "Apenas endpoints HTTPS públicos podem ser testados." });
-      const url = input.endpoint;
       try {
-        const response = await fetch(url, { method: "GET", redirect: "manual", signal: AbortSignal.timeout(8000) });
-        return { ok: response.ok, status: response.status, contentType: response.headers.get("content-type") ?? "não informado", retrievedAt: new Date().toISOString() };
-      } catch {
+        const response = await safeFetch(input.endpoint, { timeoutMs: 8000 });
+        return {
+          ok: response.ok,
+          status: response.status,
+          contentType: response.headers.get("content-type") ?? "não informado",
+          retrievedAt: new Date().toISOString(),
+        };
+      } catch (error) {
+        if (error instanceof UnsafeUrlError) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+        }
         throw new TRPCError({ code: "BAD_REQUEST", message: "Não foi possível consultar este endpoint público agora." });
       }
     }),
@@ -694,19 +716,34 @@ export const appRouter = router({
       const bundle = await getCaseBundle(input.caseId);
       if (!bundle.caseRecord) throw new TRPCError({ code: "NOT_FOUND", message: "Caso não encontrado" });
       const claimText = bundle.caseRecord.claimText;
-      const steps: Array<{ step: string; status: "ok" | "pulado" | "erro"; detail: string }> = [];
 
       const officialQuery = claimText.slice(0, 200);
       const end = new Date();
       const start = new Date(end.getTime() - 180 * 24 * 60 * 60 * 1000);
 
-      const [factChecks, officialDiscovery, bcb] = await Promise.all([
-        // 1. Checagens já publicadas (ClaimReview)
-        (async () => {
-          if (!input.runFactChecks) return null;
+      type Step = { step: string; status: "ok" | "pulado" | "erro"; detail: string };
+      type FactCandidate = {
+        claimText: string;
+        claimant?: string;
+        publisherName: string;
+        url: string;
+        title: string;
+        reviewDate?: string;
+        textualRating?: string;
+        suggestedRelation: "apoia" | "contradiz" | "contextualiza" | "neutra";
+      };
+
+      // Cada etapa devolve o próprio step — evita corrida em array compartilhado no Promise.all.
+      const [factPart, officialPart, bcbPart] = await Promise.all([
+        (async (): Promise<{ step: Step; data: FactCandidate[] | null }> => {
+          if (!input.runFactChecks) {
+            return { step: { step: "Google Fact Check", status: "pulado", detail: "Etapa desligada neste disparo." }, data: null };
+          }
           if (!isGoogleFactCheckConfigured()) {
-            steps.push({ step: "Google Fact Check", status: "pulado", detail: "GOOGLE_FACTCHECK_API_KEY não configurada." });
-            return null;
+            return {
+              step: { step: "Google Fact Check", status: "pulado", detail: "GOOGLE_FACTCHECK_API_KEY não configurada." },
+              data: null,
+            };
           }
           try {
             const result = await searchGoogleFactChecks({ query: claimText.slice(0, 300), languageCode: "pt-BR", pageSize: 10 });
@@ -722,16 +759,29 @@ export const appRouter = router({
                 suggestedRelation: ratingToRelation(review.textualRating),
               })),
             );
-            steps.push({ step: "Google Fact Check", status: "ok", detail: `${candidates.length} checagem(ns) publicada(s) encontrada(s).` });
-            return candidates;
+            return {
+              step: {
+                step: "Google Fact Check",
+                status: "ok",
+                detail: `${candidates.length} checagem(ns) publicada(s) encontrada(s).`,
+              },
+              data: candidates,
+            };
           } catch (error) {
-            steps.push({ step: "Google Fact Check", status: "erro", detail: error instanceof Error ? error.message : "falha" });
-            return null;
+            return {
+              step: {
+                step: "Google Fact Check",
+                status: "erro",
+                detail: error instanceof Error ? error.message : "falha",
+              },
+              data: null,
+            };
           }
         })(),
-        // 2. Cobertura em domínios oficiais (.gov.br/.jus.br/.leg.br)
-        (async () => {
-          if (!input.runOfficialSearch) return null;
+        (async (): Promise<{ step: Step; data: Awaited<ReturnType<typeof runDiscovery>> | null }> => {
+          if (!input.runOfficialSearch) {
+            return { step: { step: "Fontes oficiais", status: "pulado", detail: "Etapa desligada neste disparo." }, data: null };
+          }
           try {
             const siteFilter = OFFICIAL_SEARCH_SITES.map(site => `site:${site}`).join(" OR ");
             const result = await runDiscovery({
@@ -746,40 +796,85 @@ export const appRouter = router({
               objective: `Fluxo completo — cruzar com fontes oficiais: ${officialQuery}`,
               requestedBy: ctx.user.id,
             });
-            steps.push({ step: "Fontes oficiais", status: "ok", detail: `${result.results.length} candidato(s) em domínios oficiais.` });
-            return result;
+            return {
+              step: {
+                step: "Fontes oficiais",
+                status: "ok",
+                detail: `${result.results.length} candidato(s) em domínios oficiais.`,
+              },
+              data: result,
+            };
           } catch (error) {
-            steps.push({ step: "Fontes oficiais", status: "erro", detail: error instanceof Error ? error.message : "falha" });
-            return null;
+            return {
+              step: {
+                step: "Fontes oficiais",
+                status: "erro",
+                detail: error instanceof Error ? error.message : "falha",
+              },
+              data: null,
+            };
           }
         })(),
-        // 3. Série oficial do BCB, quando a alegação cita IPCA/Selic/câmbio
-        (async () => {
-          if (!input.runBcb) return null;
+        (async (): Promise<{
+          step: Step;
+          data: { suggestions: ReturnType<typeof suggestBcbSeries>; series: Awaited<ReturnType<typeof fetchBcbSgsSeries>> } | null;
+        }> => {
+          if (!input.runBcb) {
+            return { step: { step: "BCB SGS", status: "pulado", detail: "Etapa desligada neste disparo." }, data: null };
+          }
           const suggestions = suggestBcbSeries(claimText);
           if (!suggestions.length) {
-            steps.push({ step: "BCB SGS", status: "pulado", detail: "A alegação não cita indicador econômico do catálogo." });
-            return null;
+            return {
+              step: {
+                step: "BCB SGS",
+                status: "pulado",
+                detail: "A alegação não cita indicador econômico do catálogo.",
+              },
+              data: null,
+            };
           }
           try {
             const series = await fetchBcbSgsSeries({ seriesId: suggestions[0].id, lastN: 12 });
-            steps.push({ step: "BCB SGS", status: "ok", detail: `${series.seriesName}: ${series.points.length} ponto(s).` });
-            return { suggestions, series };
+            return {
+              step: {
+                step: "BCB SGS",
+                status: "ok",
+                detail: `${series.seriesName}: ${series.points.length} ponto(s).`,
+              },
+              data: { suggestions, series },
+            };
           } catch (error) {
-            steps.push({ step: "BCB SGS", status: "erro", detail: error instanceof Error ? error.message : "falha" });
-            return null;
+            return {
+              step: {
+                step: "BCB SGS",
+                status: "erro",
+                detail: error instanceof Error ? error.message : "falha",
+              },
+              data: null,
+            };
           }
         })(),
       ]);
 
+      const steps = [factPart.step, officialPart.step, bcbPart.step];
+      const failed = steps.filter(s => s.status === "erro").length;
+
       return {
         caseId: input.caseId,
         steps,
-        factChecks,
-        officialDiscovery,
-        bcb,
+        factChecks: factPart.data,
+        officialDiscovery: officialPart.data,
+        bcb: bcbPart.data,
+        summary: {
+          total: steps.length,
+          ok: steps.filter(s => s.status === "ok").length,
+          skipped: steps.filter(s => s.status === "pulado").length,
+          failed,
+        },
         editorialNote:
-          "Material preparado para leitura editorial. Abra cada item, confira a fonte primária e registre como evidência. O status e o veredito continuam sendo decisão humana.",
+          failed > 0
+            ? "Algumas etapas falharam, mas o material parcial está disponível. Confira cada item, registre evidências e decida o status com revisão humana."
+            : "Material preparado para leitura editorial. Abra cada item, confira a fonte primária e registre como evidência. O status e o veredito continuam sendo decisão humana.",
       };
     }),
     recordFinding: editorProcedure.input(evidenceInputSchema.extend({ taskId: z.number().int().positive().optional(), findingId: z.number().int().positive().optional() })).mutation(async ({ input }) => {
@@ -962,6 +1057,12 @@ export const appRouter = router({
     register: editorProcedure.input(sourceMomentInputSchema).mutation(async ({ input, ctx }) => {
       const bundle = await getCaseBundle(input.caseId);
       if (!bundle.caseRecord) throw new TRPCError({ code: "NOT_FOUND", message: "Caso não encontrado" });
+      if (!isPublicHttpsUrl(input.url)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "A URL do momento precisa ser HTTPS pública (sem localhost ou IP privado).",
+        });
+      }
       if (input.timestampStartSec != null && input.timestampEndSec != null && input.timestampEndSec < input.timestampStartSec) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "O fim do trecho deve ser posterior ao início." });
       }
