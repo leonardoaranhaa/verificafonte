@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
-import { ArrowUpRight, BookOpen, Check, ChevronRight, CircleHelp, FileSearch, Fingerprint, Image as ImageIcon, Layers3, Link2, LockKeyhole, Menu, Plus, Search, ShieldCheck, Sparkles, Type, X } from "lucide-react";
+import { ArrowUpRight, BookOpen, Check, ChevronRight, CircleHelp, FileSearch, Fingerprint, Image as ImageIcon, Layers3, Link2, LockKeyhole, Menu, Plus, Search, ShieldCheck, Sparkles, Type, UserRound, X } from "lucide-react";
 import { toast } from "sonner";
+import AuthActions from "@/components/AuthActions";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 
@@ -43,7 +44,11 @@ export default function Home() {
     onError: error => toast.error(error.message || "Não foi possível criar o caso"),
   });
   const [showCreate, setShowCreate] = useState(false);
+  const [showAccessNote, setShowAccessNote] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  // Cadastro é aberto: ter conta não é ter bancada. Sem esta distinção o
+  // formulário abria, consumia extração de link/print e só falhava no envio.
+  const canEdit = user?.role === "editor" || user?.role === "admin";
   const [claim, setClaim] = useState("");
   const [claimUrl, setClaimUrl] = useState("");
   const [intakeTab, setIntakeTab] = useState<IntakeTab>("texto");
@@ -101,14 +106,20 @@ export default function Home() {
   }
 
   useEffect(() => {
-    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("novo") === "1" && user) {
+    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("novo") === "1" && canEdit) {
       setShowCreate(true);
     }
-  }, [user]);
+  }, [canEdit]);
 
   function openCreate() {
+    // Leva para o login de verdade e volta para cá depois. O toast anterior
+    // sumia em segundos e era a única pista de que existia login no produto.
     if (!user) {
-      toast("A criação de casos exige acesso editorial", { action: { label: "Entrar", onClick: () => setLocation("/entrar") } });
+      setLocation(`/entrar?next=${encodeURIComponent("/?novo=1")}`);
+      return;
+    }
+    if (!canEdit) {
+      setShowAccessNote(true);
       return;
     }
     setShowCreate(true);
@@ -129,8 +140,8 @@ export default function Home() {
             <a href="#metodo">Método</a>
           </nav>
           <div className="header-actions">
-            <Link href="/painel" className="header-link"><Layers3 size={15} /> Painel editorial</Link>
-            <button className="button button-small button-ghost-light" onClick={openCreate}><Plus size={15} /> Nova alegação</button>
+            <AuthActions />
+            <button className="button button-small button-accent" onClick={openCreate}><Plus size={15} /> Nova alegação</button>
             <button className="mobile-menu" aria-label={menuOpen ? "Fechar menu" : "Abrir menu"} aria-expanded={menuOpen} aria-controls="menu-mobile" onClick={() => setMenuOpen(open => !open)}>{menuOpen ? <X size={20} /> : <Menu size={20} />}</button>
           </div>
         </div>
@@ -139,8 +150,9 @@ export default function Home() {
           <a href="#como-funciona" onClick={() => setMenuOpen(false)}>Como funciona</a>
           <a href="#acervo" onClick={() => setMenuOpen(false)}>Acervo público</a>
           <a href="#metodo" onClick={() => setMenuOpen(false)}>Método</a>
-          <Link href="/painel" onClick={() => setMenuOpen(false)}><Layers3 size={15} /> Painel editorial</Link>
-          <button className="button button-small button-ghost-light" onClick={() => { setMenuOpen(false); openCreate(); }}><Plus size={15} /> Nova alegação</button>
+          {user && <Link href="/painel" onClick={() => setMenuOpen(false)}><Layers3 size={15} /> Painel editorial</Link>}
+          <div className="mobile-nav-auth"><AuthActions onNavigate={() => setMenuOpen(false)} /></div>
+          <button className="button button-small button-accent" onClick={() => { setMenuOpen(false); openCreate(); }}><Plus size={15} /> Nova alegação</button>
         </nav>}
       </header>
 
@@ -261,6 +273,30 @@ export default function Home() {
             <div className="modal-actions">
               <button className="button button-ghost-dark" onClick={() => { setShowCreate(false); resetIntake(); }}>Cancelar</button>
               <button className="button button-dark" disabled={claim.trim().length < 12 || createCase.isPending} onClick={() => createCase.mutate({ claimText: claim, claimUrl })}>{createCase.isPending ? "Criando…" : "Criar rascunho"}<ArrowUpRight size={16} /></button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showAccessNote && user && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setShowAccessNote(false); }}>
+          <div className="create-modal access-modal" role="dialog" aria-modal="true" aria-labelledby="access-title">
+            <button className="modal-close" onClick={() => setShowAccessNote(false)} aria-label="Fechar"><X size={18} /></button>
+            <div className="access-modal-icon"><UserRound size={20} /></div>
+            <div className="eyebrow">Conta criada, acesso editorial pendente</div>
+            <h2 id="access-title">Você está logado — mas ainda não na redação.</h2>
+            <p className="modal-lede">
+              Qualquer pessoa pode criar uma conta aqui; abrir casos é outra coisa. A bancada guarda apurações em
+              andamento, então o acesso é concedido conta a conta por um administrador.
+            </p>
+            <div className="access-identity">
+              <span>Conta conectada</span>
+              <strong>{user.email || user.openId}</strong>
+              <small>É este endereço que o administrador procura para liberar seu acesso.</small>
+            </div>
+            <div className="modal-actions">
+              <button className="button button-ghost-dark" onClick={() => setShowAccessNote(false)}>Entendi</button>
+              <a className="button button-dark" href="#acervo" onClick={() => setShowAccessNote(false)}>Ver o acervo público <ArrowUpRight size={16} /></a>
             </div>
           </div>
         </div>

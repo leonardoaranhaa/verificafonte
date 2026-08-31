@@ -1,20 +1,43 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { ArrowLeft, ArrowUpRight, Fingerprint, LogIn } from "lucide-react";
 import { toast } from "sonner";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
+
+/**
+ * Só aceita caminho interno. Um `next` absoluto ("https://..." ou "//host")
+ * transformaria a tela de login em redirecionador aberto para fora do site.
+ */
+function safeNext(raw: string | null): string | null {
+  if (!raw) return null;
+  if (!raw.startsWith("/") || raw.startsWith("//")) return null;
+  return raw;
+}
 
 export default function Login() {
   const [, setLocation] = useLocation();
+  const { user, loading } = useAuth();
   const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const utils = trpc.useUtils();
 
+  // Quem clicou em "Nova alegação" deslogado volta para a criação depois de
+  // entrar, em vez de ser largado no painel sem saber o que aconteceu.
+  const next = useMemo(() => (typeof window === "undefined" ? null : safeNext(new URLSearchParams(window.location.search).get("next"))), []);
+  const destination = next ?? "/painel";
+
+  // Chegar em /entrar já logado mostrava um formulário de login para quem já
+  // tinha sessão — a leitura era de que o login não tinha funcionado.
+  useEffect(() => {
+    if (!loading && user) setLocation(destination);
+  }, [loading, user, destination, setLocation]);
+
   async function onSuccess() {
     await utils.auth.me.invalidate();
-    setLocation("/painel");
+    setLocation(destination);
   }
 
   const login = trpc.auth.login.useMutation({ onSuccess, onError: error => toast.error(error.message) });
@@ -46,7 +69,7 @@ export default function Login() {
         </div>
         <div className="eyebrow">{mode === "login" ? "Área editorial" : "Nova conta"}</div>
         <h1>{mode === "login" ? "Entre para abrir a bancada." : "Crie seu acesso editorial."}</h1>
-        <p>{mode === "login" ? "Use o e-mail e a senha da sua conta editorial." : "Casos, evidências e revisões ficam vinculados à sua conta."}</p>
+        <p>{mode === "login" ? "Use o e-mail e a senha da sua conta. Se você entrou com o Google antes, use o Google de novo — são a mesma pessoa, contas diferentes." : "O cadastro é aberto e leva um minuto. A conta nova ainda não abre a bancada: um administrador libera o acesso editorial depois, procurando você por este e-mail."}</p>
         <form
           className="auth-form"
           onSubmit={event => {
@@ -74,7 +97,7 @@ export default function Login() {
           </button>
         </form>
         <div className="auth-divider"><span>ou</span></div>
-        <a className="button button-outline auth-google" href="/api/oauth/google/start">
+        <a className="button button-outline auth-google" href={next ? `/api/oauth/google/start?next=${encodeURIComponent(next)}` : "/api/oauth/google/start"}>
           <GoogleIcon /> Continuar com Google
         </a>
         <button className="text-action auth-switch" onClick={() => setMode(mode === "login" ? "register" : "login")}>

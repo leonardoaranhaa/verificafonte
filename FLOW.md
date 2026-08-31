@@ -15,6 +15,26 @@ GOOGLE_CLIENT_SECRET=...
 
 O conector do Banco Central (SGS) não exige credencial — é API pública.
 
+## Entrar e ganhar acesso
+
+Três estados, e a interface diz em qual você está:
+
+| Estado | O que vê |
+|---|---|
+| **Visitante** | Acervo público e botão **Entrar** no cabeçalho. "Nova alegação" leva ao login e volta para a criação depois. |
+| **Conta sem papel editorial** | Identidade e **Sair** no cabeçalho. Tentar criar um caso abre um aviso que mostra o e-mail que o administrador precisa procurar. |
+| **Editor ou administrador** | A bancada. Sair fica ao lado da identidade na barra lateral. |
+
+O cadastro é aberto: criar conta **não** dá acesso à bancada. Quem promove é um
+administrador, na aba **Equipe e acessos**.
+
+O primeiro administrador vem de `OWNER_OPEN_ID`, escrito como
+`email:voce@dominio.com`. Essa conta é promovida no login — tanto entrando por
+senha (o openId é exatamente esse valor) quanto pelo Google, desde que o Google
+confirme o e-mail como verificado. Sem essa segunda regra, o dono entrando pelo
+Google recebia o openId `google:<sub>`, nunca era reconhecido, e a instalação
+ficava sem nenhum administrador sem dizer por quê.
+
 ## Fluxo editorial (ponta a ponta)
 
 1. **Entrada** (Home)

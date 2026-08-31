@@ -449,10 +449,14 @@ export const appRouter = router({
         throw new TRPCError({ code: "UNAUTHORIZED", message: "E-mail ou senha inválidos." });
       }
       await upsertUser({ openId: user.openId, lastSignedIn: new Date() });
-      const token = await createSessionToken({ openId: user.openId, name: user.name ?? "" });
+      // Relê depois do upsert: é ele que promove o dono da instalação a admin.
+      // Devolver a linha lida antes mostraria "sem acesso editorial" para quem
+      // acabou de ganhar o acesso, até a próxima consulta a auth.me.
+      const fresh = (await getUserByOpenId(user.openId)) ?? user;
+      const token = await createSessionToken({ openId: fresh.openId, name: fresh.name ?? "" });
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.cookie(COOKIE_NAME, token, { ...cookieOptions, maxAge: ONE_YEAR_MS });
-      return sanitizeUser(user);
+      return sanitizeUser(fresh);
     }),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);

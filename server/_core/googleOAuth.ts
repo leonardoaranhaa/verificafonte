@@ -9,7 +9,18 @@ import { ENV } from "./env";
 import { googleOpenId } from "./password";
 
 const STATE_COOKIE = "oauth_state";
+const NEXT_COOKIE = "oauth_next";
 const STATE_MAX_AGE_MS = 10 * 60 * 1000;
+
+/**
+ * Destino após o login. Só caminho interno: um valor absoluto
+ * ("https://..." ou "//host") transformaria o callback em redirecionador
+ * aberto, útil para phishing com o domínio do produto na barra.
+ */
+export function safeNext(raw: unknown): string | null {
+  if (typeof raw !== "string" || !raw.startsWith("/") || raw.startsWith("//")) return null;
+  return raw;
+}
 
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -18,6 +29,7 @@ const GOOGLE_USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo";
 type GoogleUserInfo = {
   sub?: string;
   email?: string;
+  email_verified?: boolean;
   name?: string;
 };
 
@@ -37,6 +49,10 @@ export function registerGoogleOAuthRoutes(app: Express) {
     const cookieOptions = getSessionCookieOptions(req);
     res.cookie(STATE_COOKIE, state, { ...cookieOptions, maxAge: STATE_MAX_AGE_MS });
 
+    const next = safeNext(req.query.next);
+    if (next) res.cookie(NEXT_COOKIE, next, { ...cookieOptions, maxAge: STATE_MAX_AGE_MS });
+    else res.clearCookie(NEXT_COOKIE, { ...cookieOptions, maxAge: -1 });
+
     const url = new URL(GOOGLE_AUTH_URL);
     url.searchParams.set("client_id", ENV.googleClientId);
     url.searchParams.set("redirect_uri", getRedirectUri(req));
@@ -53,7 +69,9 @@ export function registerGoogleOAuthRoutes(app: Express) {
     const state = typeof req.query.state === "string" ? req.query.state : undefined;
     const cookies = parseCookieHeader(req.headers.cookie ?? "");
     const expectedState = cookies[STATE_COOKIE];
+    const next = safeNext(cookies[NEXT_COOKIE]);
     res.clearCookie(STATE_COOKIE, { ...getSessionCookieOptions(req), maxAge: -1 });
+    res.clearCookie(NEXT_COOKIE, { ...getSessionCookieOptions(req), maxAge: -1 });
 
     if (!code || !state || !expectedState || state !== expectedState) {
       res.status(403).send("Não foi possível validar o login com Google (state inválido ou expirado). Tente novamente.");
@@ -89,20 +107,25 @@ export function registerGoogleOAuthRoutes(app: Express) {
       if (!userInfo.sub) throw new Error("missing sub in Google userinfo response");
 
       const openId = googleOpenId(userInfo.sub);
-      await db.upsertUser({
-        openId,
-        email: userInfo.email ?? null,
-        name: userInfo.name ?? null,
-        loginMethod: "google",
-        lastSignedIn: new Date(),
-      });
+      await db.upsertUser(
+        {
+          openId,
+          email: userInfo.email ?? null,
+          name: userInfo.name ?? null,
+          loginMethod: "google",
+          lastSignedIn: new Date(),
+        },
+        // Só um e-mail confirmado pelo Google pode identificar o dono da
+        // instalação; sem isso o e-mail é apenas um campo do perfil.
+        { emailVerified: userInfo.email_verified === true },
+      );
       const user = await db.getUserByOpenId(openId);
       if (!user) throw new Error("failed to persist Google user");
 
       const sessionToken = await createSessionToken({ openId: user.openId, name: user.name ?? "" });
       const cookieOptions = getSessionCookieOptions(req);
       res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
-      res.redirect(302, "/painel");
+      res.redirect(302, next ?? "/painel");
     } catch (error) {
       console.error("[GoogleOAuth] callback failed", error);
       res.status(500).send("Não foi possível concluir o login com Google. Tente novamente.");
